@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Base application theme -->
+    <style name="Base.Theme.FieldService" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/primary</item>
+        <item name="colorPrimaryVariant">@color/primary_dark</item>
+        <item name="colorOnPrimary">@color/white</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+    </style>
+
+    <style name="Theme.FieldService" parent="Base.Theme.FieldService" />
+
+    <!-- Splash screen theme (uses core-splashscreen compat library) -->
+    <style name="Theme.FieldService.Splash" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/splash_bg</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_field_service_logo</item>
+        <item name="postSplashScreenTheme">@style/Theme.FieldService</item>
+    </style>
+</resources>
