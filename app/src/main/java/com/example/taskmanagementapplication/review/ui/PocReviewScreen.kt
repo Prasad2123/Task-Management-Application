@@ -96,6 +96,7 @@ fun PocReviewScreen(
 ) {
     val work by workViewModel.work.collectAsStateWithLifecycle()
     val elapsedSeconds by workViewModel.elapsedSeconds.collectAsStateWithLifecycle()
+    val isSubmitting by workViewModel.isSubmitting.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
@@ -559,6 +560,7 @@ fun PocReviewScreen(
                     ) {
                         OutlinedButton(
                             onClick = { showRejectSheet = true },
+                            enabled = !isSubmitting,
                             modifier = Modifier
                                 .weight(1f)
                                 .height(52.dp)
@@ -573,6 +575,7 @@ fun PocReviewScreen(
 
                         Button(
                             onClick = { showApproveConfirm = true },
+                            enabled = !isSubmitting,
                             modifier = Modifier
                                 .weight(1f)
                                 .height(52.dp)

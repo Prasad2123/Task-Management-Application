@@ -27,58 +27,61 @@ class AuthRepository(
                 if (response.isSuccessful) {
                     val authBody = response.body()!!
                     val accessToken = authBody.accessToken
+                    val refreshToken = authBody.refreshToken
 
-                    // Temporarily store token so subsequent profile RPC carries Authorization header
-                    tokenManager.saveToken(
-                        token = accessToken,
-                        userId = 1L,
-                        name = "User",
-                        email = cleanEmail,
-                        role = "SERVICE_BOY",
-                        phone = null
-                    )
+                    // Save token temporarily so subsequent profile RPC carries Authorization header
+                    tokenManager.updateTokens(accessToken, refreshToken)
 
                     // Retrieve authoritative user profile from database via get_current_user_profile RPC
-                    var resolvedId = 1L
-                    var resolvedName = (authBody.user.userMetadata?.get("name") as? String) ?: "User"
-                    var resolvedRole = (authBody.user.userMetadata?.get("role") as? String) ?: "SERVICE_BOY"
-                    var resolvedPhone: String? = null
-
-                    try {
-                        val profileResp = apiService.getCurrentUserProfile()
-                        if (profileResp.isSuccessful && profileResp.body() != null) {
-                            val profile = profileResp.body()!!
-                            resolvedId = profile.id
-                            resolvedName = profile.name
-                            resolvedRole = profile.role
-                            resolvedPhone = profile.phone
-                        }
+                    val profileResp = try {
+                        apiService.getCurrentUserProfile()
                     } catch (e: Exception) {
-                        // Fall back to metadata in auth token
+                        tokenManager.clearToken()
+                        return@withContext NetworkResult.Error(
+                            message = "Failed to retrieve user profile from database: ${e.message}"
+                        )
+                    }
+
+                    if (!profileResp.isSuccessful || profileResp.body() == null) {
+                        tokenManager.clearToken()
+                        return@withContext NetworkResult.Error(
+                            message = "User profile not found in database. Please ensure your account has been provisioned."
+                        )
+                    }
+
+                    val profile = profileResp.body()!!
+                    val resolvedRole = profile.role.trim().uppercase()
+
+                    val domainRole = when (resolvedRole) {
+                        "SERVICE_BOY" -> UserRole.SERVICE_BOY
+                        "POC" -> UserRole.POC
+                        "SITE_SUPERVISOR", "SUPERVISOR" -> UserRole.SITE_SUPERVISOR
+                        "ADMIN" -> UserRole.ADMIN
+                        else -> {
+                            tokenManager.clearToken()
+                            return@withContext NetworkResult.Error(
+                                message = "Unrecognized user role in profile: ${profile.role}"
+                            )
+                        }
                     }
 
                     // Save verified application profile into DataStore
-                    tokenManager.saveToken(
-                        token = accessToken,
-                        userId = resolvedId,
-                        name = resolvedName,
+                    tokenManager.saveSession(
+                        accessToken = accessToken,
+                        refreshToken = refreshToken,
+                        userId = profile.id,
+                        name = profile.name,
                         email = cleanEmail,
-                        role = resolvedRole,
-                        phone = resolvedPhone
+                        role = profile.role,
+                        phone = profile.phone
                     )
-
-                    val domainRole = when (resolvedRole) {
-                        "POC" -> UserRole.POC
-                        "SITE_SUPERVISOR", "SUPERVISOR" -> UserRole.SITE_SUPERVISOR
-                        else -> UserRole.SERVICE_BOY
-                    }
 
                     NetworkResult.Success(
                         User(
-                            id = resolvedId.toString(),
-                            name = resolvedName,
+                            id = profile.id.toString(),
+                            name = profile.name,
                             email = cleanEmail,
-                            phone = resolvedPhone ?: "",
+                            phone = profile.phone ?: "",
                             role = domainRole
                         )
                     )

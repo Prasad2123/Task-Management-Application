@@ -3,7 +3,8 @@ package com.example.taskmanagementapplication.core.model
 enum class UserRole {
     SERVICE_BOY,
     POC,
-    SITE_SUPERVISOR
+    SITE_SUPERVISOR,
+    ADMIN
 }
 
 data class User(

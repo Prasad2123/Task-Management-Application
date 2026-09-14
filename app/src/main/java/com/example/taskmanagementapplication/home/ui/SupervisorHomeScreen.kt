@@ -201,7 +201,7 @@ fun SupervisorHomeScreen(
                                     color = Color.White.copy(alpha = 0.85f)
                                 )
                                 Text(
-                                    text = currentUser?.name ?: "Suresh Patel",
+                                    text = currentUser?.name ?: "Site Supervisor",
                                     style = MaterialTheme.typography.titleLarge,
                                     fontWeight = FontWeight.Bold,
                                     color = Color.White
@@ -372,7 +372,7 @@ fun SupervisorHomeScreen(
                                     )
                                     Spacer(modifier = Modifier.width(8.dp))
                                     Text(
-                                        text = "POC Verified: Amit Kumar (${work.pocApprovalTime ?: "Recently"})",
+                                        text = "POC Verified: ${work.pocName.ifBlank { "Site POC" }} (${work.pocApprovalTime ?: "Recently"})",
                                         style = MaterialTheme.typography.labelSmall,
                                         fontWeight = FontWeight.SemiBold,
                                         color = Color(0xFF2E7D32)
@@ -402,7 +402,7 @@ fun SupervisorHomeScreen(
                                     )
                                     Spacer(modifier = Modifier.width(6.dp))
                                     Text(
-                                        text = "Rahul Sharma",
+                                        text = work.serviceBoyName.ifBlank { "Service Engineer" },
                                         style = MaterialTheme.typography.labelMedium,
                                         fontWeight = FontWeight.SemiBold
                                     )

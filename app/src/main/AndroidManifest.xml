@@ -20,7 +20,7 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.FieldService"
-        android:usesCleartextTraffic="true">
+        android:usesCleartextTraffic="false">
         <!-- usesCleartextTraffic=true allows HTTP to Android emulator (10.0.2.2) during development.
              In production, HTTPS is mandatory. Set to false for release builds. -->
 

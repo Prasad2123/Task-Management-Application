@@ -7,6 +7,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import com.example.taskmanagementapplication.admin.ui.AdminDashboardScreen
 import com.example.taskmanagementapplication.auth.ui.LoginScreen
 import com.example.taskmanagementapplication.auth.viewmodel.AuthViewModel
 import com.example.taskmanagementapplication.core.model.UserRole
@@ -100,6 +101,7 @@ fun AppNavHost(
                         UserRole.SERVICE_BOY -> Routes.SERVICE_HOME
                         UserRole.POC -> Routes.POC_HOME
                         UserRole.SITE_SUPERVISOR -> Routes.SUPERVISOR_HOME
+                        UserRole.ADMIN -> Routes.ADMIN_DASHBOARD
                     }
                     navController.navigate(destination) {
                         popUpTo(Routes.LOGIN) { inclusive = true }
@@ -292,6 +294,26 @@ fun AppNavHost(
             SupervisorReviewScreen(
                 onBack = { navController.popBackStack() },
                 workViewModel = workViewModel
+            )
+        }
+
+        composable(Routes.ADMIN_DASHBOARD) {
+            AdminDashboardScreen(
+                authViewModel = authViewModel,
+                workViewModel = workViewModel,
+                onOpenProfile = { navController.navigate(Routes.PROFILE) },
+                onViewWorkDetails = { work ->
+                    workViewModel.selectWork(work)
+                    navController.navigate(Routes.WORK_DETAILS)
+                },
+                onViewPhotos = { work ->
+                    workViewModel.selectWork(work)
+                    navController.navigate(Routes.WORK_PHOTOS)
+                },
+                onViewReport = { work ->
+                    workViewModel.selectWork(work)
+                    navController.navigate(Routes.WORK_REPORT)
+                }
             )
         }
 

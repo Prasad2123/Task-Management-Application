@@ -131,7 +131,21 @@ class WorkRepository(
         description: String,
         clientItemId: String? = null
     ): NetworkResult<AdditionalWorkItem> = safeCall {
-        val currentUserId = tokenManager?.getUserId() ?: 1L
+        try {
+            val request = AddAdditionalWorkRpcRequest(
+                workId = workId,
+                description = description,
+                clientItemId = clientItemId
+            )
+            val rpcResponse = apiService.addAdditionalWork(request)
+            if (rpcResponse.isSuccessful && rpcResponse.body() != null) {
+                return@safeCall NetworkResult.Success(rpcResponse.body()!!.toDomainModel())
+            }
+        } catch (e: Exception) {
+            // Fall back to direct PostgREST insert if RPC is not available in mock/test
+        }
+
+        val currentUserId = tokenManager?.getUserId()
         val body = CreateAdditionalWorkBody(
             workId = workId,
             description = description,
@@ -238,9 +252,29 @@ class WorkRepository(
 
     suspend fun getPhotos(workId: Long): NetworkResult<List<WorkPhoto>> = safeCall {
         val response = apiService.getPhotos("eq.$workId")
-        NetworkModule.toNetworkResult(response).mapSuccess { dtos ->
-            dtos.map { it.toDomainModel() }
+        if (!response.isSuccessful) {
+            val errResult = NetworkModule.toNetworkResult(response)
+            return@safeCall errResult.mapSuccess { emptyList() }
         }
+        val dtos = response.body() ?: emptyList()
+        val photos = dtos.map { dto ->
+            var finalUrl = dto.photoUrl
+            val storageRef = dto.storageReference
+            if (!storageRef.isNullOrBlank()) {
+                try {
+                    val signResp = apiService.createSignedPhotoUrl(storageRef)
+                    if (signResp.isSuccessful && signResp.body() != null) {
+                        val signedPath = signResp.body()!!.signedURL
+                        finalUrl = if (signedPath.startsWith("http")) signedPath
+                        else BuildConfig.SUPABASE_URL.trimEnd('/') + if (signedPath.startsWith("/")) signedPath else "/$signedPath"
+                    }
+                } catch (e: Exception) {
+                    // Fall back to original photoUrl
+                }
+            }
+            dto.copy(photoUrl = finalUrl).toDomainModel()
+        }
+        NetworkResult.Success(photos)
     }
 
     suspend fun uploadPhoto(
@@ -296,7 +330,7 @@ class WorkRepository(
         }
 
         // 3. Insert metadata record in PostgREST public.work_photos table
-        val currentUserId = tokenManager?.getUserId() ?: 1L
+        val currentUserId = tokenManager?.getUserId()
         val recordBody = CreatePhotoRecordBody(
             workId = workId,
             title = titleString,
@@ -383,24 +417,28 @@ class WorkRepository(
         val pocApproval = approvals.find { it.approverRole == "POC" }
         val supervisorApproval = approvals.find { it.approverRole == "SITE_SUPERVISOR" }
 
+        val isPocApproved = when (pocApproval?.status) {
+            "APPROVED" -> true
+            "REJECTED" -> false
+            else -> if (baseWork.status == WorkStatus.APPROVED || baseWork.status == WorkStatus.COMPLETED || baseWork.status == WorkStatus.WAITING_FOR_SUPERVISOR_REVIEW) true else null
+        }
+
+        val isSupervisorApproved = when (supervisorApproval?.status) {
+            "APPROVED" -> true
+            "REJECTED" -> false
+            else -> if (baseWork.status == WorkStatus.APPROVED || baseWork.status == WorkStatus.COMPLETED) true else null
+        }
+
         val enrichedWork = baseWork.copy(
             checklist = checklist,
             photos = photos,
-            pocApproved = when (pocApproval?.status) {
-                "APPROVED" -> true
-                "REJECTED" -> false
-                else -> null
-            },
+            pocApproved = isPocApproved,
             pocApprovalTime = pocApproval?.decidedAt ?: baseWork.pocApprovalTime,
             pocRejectionReason = if (pocApproval?.status == "REJECTED") pocApproval.rejectionReason else null,
-            supervisorApproved = when (supervisorApproval?.status) {
-                "APPROVED" -> true
-                "REJECTED" -> false
-                else -> null
-            },
+            supervisorApproved = isSupervisorApproved,
             supervisorApprovalTime = supervisorApproval?.decidedAt ?: baseWork.supervisorApprovalTime,
             supervisorRejectionReason = if (supervisorApproval?.status == "REJECTED") supervisorApproval.rejectionReason else null,
-            readyForCompletion = (pocApproval?.status == "APPROVED" && supervisorApproval?.status == "APPROVED")
+            readyForCompletion = (isPocApproved == true && isSupervisorApproved == true)
         )
 
         NetworkResult.Success(enrichedWork)
@@ -508,17 +546,25 @@ class WorkRepository(
                 paint.textSize = 10f
                 y += 16f
 
-                val serviceBoy = work?.serviceBoyName?.ifBlank { "Rahul Patil" } ?: "Rahul Patil"
-                canvas.drawText("• Service Boy: $serviceBoy (service@demo.com)", 40f, y, paint)
+                val serviceBoy = work?.serviceBoyName?.ifBlank { "Assigned Engineer" } ?: "Assigned Engineer"
+                canvas.drawText("• Service Boy: $serviceBoy", 40f, y, paint)
                 y += 15f
 
-                val poc = work?.pocName?.ifBlank { "Amit Sharma (POC)" } ?: "Amit Sharma (POC)"
-                val pocStatus = if (work?.pocApproved == true) "APPROVED" else "APPROVED"
+                val poc = work?.pocName?.ifBlank { "Assigned POC" } ?: "Assigned POC"
+                val pocStatus = when (work?.pocApproved) {
+                    true -> "APPROVED"
+                    false -> "REJECTED"
+                    null -> "PENDING"
+                }
                 canvas.drawText("• POC: $poc — Status: $pocStatus", 40f, y, paint)
                 y += 15f
 
-                val supervisor = work?.supervisorName?.ifBlank { "Priya Desai (Supervisor)" } ?: "Priya Desai (Supervisor)"
-                val supStatus = if (work?.supervisorApproved == true) "APPROVED" else "APPROVED"
+                val supervisor = work?.supervisorName?.ifBlank { "Assigned Supervisor" } ?: "Assigned Supervisor"
+                val supStatus = when (work?.supervisorApproved) {
+                    true -> "APPROVED"
+                    false -> "REJECTED"
+                    null -> "PENDING"
+                }
                 canvas.drawText("• Supervisor: $supervisor — Status: $supStatus", 40f, y, paint)
                 y += 24f
 
@@ -530,22 +576,22 @@ class WorkRepository(
                 paint.textSize = 10f
                 y += 16f
 
-                val scheduled = work?.scheduledDate ?: "2026-09-14"
+                val scheduled = work?.scheduledDate ?: "Scheduled Date"
                 canvas.drawText("• Scheduled Date: $scheduled", 40f, y, paint)
                 y += 15f
 
-                val startTime = work?.startTime ?: "2026-09-14T09:00:00Z"
+                val startTime = work?.startTime ?: "Work Start"
                 canvas.drawText("• Start Time: $startTime", 40f, y, paint)
                 y += 15f
 
-                val endTime = work?.endTime ?: work?.completedAt ?: "2026-09-14T11:30:00Z"
+                val endTime = work?.endTime ?: work?.completedAt ?: "Completed"
                 canvas.drawText("• Completed Time: $endTime", 40f, y, paint)
                 y += 15f
 
                 val gpsText = if (work?.latitude != null && work.longitude != null) {
-                    "Lat: ${work.latitude}, Lng: ${work.longitude} (Verified GPS Geofence: 150m)"
+                    "Lat: ${work.latitude}, Lng: ${work.longitude} (Verified GPS Geofence: ${work.allowedRadiusMeters.toInt()}m)"
                 } else {
-                    "Lat: 17.5230403, Lng: 73.5378423 (Verified GPS Geofence: 150m)"
+                    "GPS Geofence: 150m (Location Recorded)"
                 }
                 canvas.drawText("• GPS Location: $gpsText", 40f, y, paint)
                 y += 24f
@@ -558,14 +604,7 @@ class WorkRepository(
                 paint.textSize = 10f
                 y += 16f
 
-                val checklistItems = work?.checklist?.ifEmpty { null } ?: listOf(
-                    ChecklistItem("7", "General Site Inspection", isCompleted = true),
-                    ChecklistItem("8", "Pest Control Treatment", isCompleted = true),
-                    ChecklistItem("9", "Equipment Inspection", isCompleted = true),
-                    ChecklistItem("10", "Preventive Maintenance Check", isCompleted = true),
-                    ChecklistItem("11", "Safety Inspection", isCompleted = true),
-                    ChecklistItem("12", "Area Cleaning", isCompleted = true)
-                )
+                val checklistItems = work?.checklist ?: emptyList()
 
                 for (item in checklistItems) {
                     val check = if (item.isCompleted) "[X]" else "[ ]"

@@ -1,11 +1,13 @@
 package com.example.taskmanagementapplication.home.ui
 
 import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -21,6 +23,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.NavigateNext
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Notifications
@@ -36,6 +39,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -70,7 +74,6 @@ import com.example.taskmanagementapplication.core.ui.StepState
 import com.example.taskmanagementapplication.core.ui.WorkCard
 import com.example.taskmanagementapplication.core.ui.WorkProgressStepper
 import com.example.taskmanagementapplication.core.ui.WorkStep
-import com.example.taskmanagementapplication.home.viewmodel.HomeViewModel
 import com.example.taskmanagementapplication.work.viewmodel.WorkViewModel
 
 private enum class ServiceBoyTab { HOME, WORK, PROFILE }
@@ -81,21 +84,28 @@ fun ServiceBoyHomeScreen(
     onViewWork: () -> Unit,
     onOpenProfile: () -> Unit,
     onViewLocation: () -> Unit = {},
-    workViewModel: WorkViewModel = viewModel(),
-    homeViewModel: HomeViewModel = viewModel()
+    workViewModel: WorkViewModel = viewModel()
 ) {
     val currentUser by authViewModel.currentUser.collectAsStateWithLifecycle()
     val work by workViewModel.work.collectAsStateWithLifecycle()
+    val predefinedWorks by workViewModel.predefinedWorks.collectAsStateWithLifecycle()
+    val activeWorks = remember(predefinedWorks) {
+        predefinedWorks.filter { it.status != WorkStatus.COMPLETED }
+    }
+    val completedWorks = remember(predefinedWorks) {
+        predefinedWorks.filter { it.status == WorkStatus.COMPLETED }
+    }
+    val hasSelectedWork = work.backendId != null && activeWorks.any { it.backendId == work.backendId }
     val elapsedSeconds by workViewModel.elapsedSeconds.collectAsStateWithLifecycle()
     val notifications by workViewModel.notifications.collectAsStateWithLifecycle()
     val unreadNotificationsCount = notifications.count { !it.isRead }
     var selectedTab by remember { mutableStateOf(ServiceBoyTab.HOME) }
     var showNotificationsSheet by remember { mutableStateOf(false) }
 
-    val totalCompleted = workViewModel.getTotalCompletedCount(work)
-    val totalCount = workViewModel.getTotalCount(work)
-    val checklistProgress = workViewModel.getProgressFraction(work)
-    val photosCount = work.photos.size
+    val totalCompleted = if (hasSelectedWork) workViewModel.getTotalCompletedCount(work) else 0
+    val totalCount = if (hasSelectedWork) workViewModel.getTotalCount(work) else 0
+    val checklistProgress = if (hasSelectedWork) workViewModel.getProgressFraction(work) else 0f
+    val photosCount = if (hasSelectedWork) work.photos.size else 0
 
     // Progress steps based on current status
     val steps = listOf(
@@ -224,7 +234,7 @@ fun ServiceBoyHomeScreen(
                             color = Color.White.copy(alpha = 0.85f)
                         )
                         Text(
-                            text = currentUser?.name?.split(" ")?.firstOrNull() ?: "Rahul",
+                            text = currentUser?.name?.split(" ")?.firstOrNull() ?: "Service Engineer",
                             style = MaterialTheme.typography.headlineSmall,
                             fontWeight = FontWeight.Bold,
                             color = Color.White
@@ -262,7 +272,7 @@ fun ServiceBoyHomeScreen(
                     }
 
                     Spacer(modifier = Modifier.width(12.dp))
-                    AvatarPlaceholder(name = currentUser?.name ?: "Rahul Patil", size = 56.dp)
+                    AvatarPlaceholder(name = currentUser?.name ?: "Service Engineer", size = 56.dp)
                 }
             }
 
@@ -270,141 +280,334 @@ fun ServiceBoyHomeScreen(
 
             Column(modifier = Modifier.padding(horizontal = 20.dp)) {
 
-                // ── TODAY'S COMPACT SUMMARY METRICS ──
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    HomeMetricCard(
-                        label = "WORK TIME",
-                        value = workViewModel.formatElapsedTime(elapsedSeconds),
-                        color = PrimaryLight,
-                        modifier = Modifier.weight(1f)
-                    )
-                    HomeMetricCard(
-                        label = "PHOTOS",
-                        value = photosCount.toString(),
-                        color = StatusInProgress,
-                        modifier = Modifier.weight(1f)
-                    )
-                    HomeMetricCard(
-                        label = "CHECKLIST",
-                        value = "$totalCompleted/$totalCount",
-                        color = if (totalCompleted == totalCount && totalCount > 0) StatusCompleted else AccentOrange,
-                        modifier = Modifier.weight(1f)
-                    )
-                    HomeMetricCard(
-                        label = "STATUS",
-                        value = when (work.status) {
-                            WorkStatus.NOT_STARTED -> "Not Started"
-                            WorkStatus.IN_PROGRESS -> "In Progress"
-                            WorkStatus.APPROVED -> "Approved"
-                            WorkStatus.COMPLETED -> "Done"
-                            WorkStatus.REJECTED -> "Changes"
-                            else -> "Review"
-                        },
-                        color = when (work.status) {
-                            WorkStatus.APPROVED, WorkStatus.COMPLETED -> StatusCompleted
-                            WorkStatus.REJECTED -> ErrorRed
-                            else -> PrimaryLight
-                        },
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(20.dp))
-
-                // ── WORK PROGRESS STEPPER ──
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(20.dp),
-                    elevation = CardDefaults.cardElevation(4.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-                ) {
-                    Column(modifier = Modifier.padding(20.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
+                // ── PREDEFINED WORKS SELECTOR (WHEN MULTIPLE ASSIGNED) ──
+                if (activeWorks.size > 1) {
+                    SectionHeader(title = "Your Predefined Works (${activeWorks.size})")
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(20.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                        elevation = CardDefaults.cardElevation(3.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
                             Text(
-                                text = "Work Progress",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.weight(1f)
+                                text = "Select a predefined work to inspect and begin:",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                            // Status chip
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(20.dp))
-                                    .background(
-                                        when (work.status) {
-                                            WorkStatus.NOT_STARTED -> AccentOrange.copy(alpha = 0.12f)
-                                            WorkStatus.IN_PROGRESS -> StatusInProgress.copy(alpha = 0.12f)
-                                            WorkStatus.COMPLETED -> StatusCompleted.copy(alpha = 0.12f)
-                                            WorkStatus.REJECTED -> ErrorRed.copy(alpha = 0.12f)
-                                            else -> MaterialTheme.colorScheme.surfaceVariant
+                            Spacer(modifier = Modifier.height(10.dp))
+                            activeWorks.forEach { item ->
+                                val isSelected = work.backendId == item.backendId
+                                Card(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 4.dp)
+                                        .clickable { workViewModel.selectWork(item) },
+                                    shape = RoundedCornerShape(14.dp),
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = if (isSelected) PrimaryLight.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+                                    ),
+                                    border = if (isSelected) BorderStroke(1.5.dp, PrimaryLight) else null
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(12.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = item.title.ifBlank { item.companyName },
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                fontWeight = FontWeight.Bold,
+                                                color = if (isSelected) PrimaryLight else MaterialTheme.colorScheme.onSurface
+                                            )
+                                            Text(
+                                                text = item.companyName.ifBlank { item.address },
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            Text(
+                                                text = when (item.status) {
+                                                    WorkStatus.NOT_STARTED -> "Not Started"
+                                                    WorkStatus.IN_PROGRESS, WorkStatus.WORK_STARTED -> "In Progress"
+                                                    WorkStatus.REJECTED -> "Changes Needed"
+                                                    WorkStatus.APPROVED -> "Approved"
+                                                    else -> "Pending Review"
+                                                },
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = when (item.status) {
+                                                    WorkStatus.NOT_STARTED -> AccentOrange
+                                                    WorkStatus.IN_PROGRESS, WorkStatus.WORK_STARTED -> StatusInProgress
+                                                    WorkStatus.REJECTED -> ErrorRed
+                                                    else -> PrimaryLight
+                                                }
+                                            )
                                         }
-                                    )
-                                    .padding(horizontal = 10.dp, vertical = 4.dp)
-                            ) {
-                                Text(
-                                    text = when (work.status) {
-                                        WorkStatus.NOT_STARTED -> "Not Started"
-                                        WorkStatus.IN_PROGRESS -> "In Progress"
-                                        WorkStatus.COMPLETED -> "Completed"
-                                        WorkStatus.APPROVED -> "Approved"
-                                        WorkStatus.REJECTED -> "Changes Needed"
-                                        else -> "Pending Review"
-                                    },
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = when (work.status) {
-                                        WorkStatus.NOT_STARTED -> AccentOrange
-                                        WorkStatus.IN_PROGRESS -> StatusInProgress
-                                        WorkStatus.COMPLETED, WorkStatus.APPROVED -> StatusCompleted
-                                        WorkStatus.REJECTED -> ErrorRed
-                                        else -> MaterialTheme.colorScheme.onSurfaceVariant
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        if (isSelected) {
+                                            Icon(
+                                                imageVector = Icons.Default.CheckCircle,
+                                                contentDescription = "Active Selection",
+                                                tint = PrimaryLight,
+                                                modifier = Modifier.size(24.dp)
+                                            )
+                                        } else {
+                                            OutlinedButton(
+                                                onClick = { workViewModel.selectWork(item) },
+                                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 2.dp),
+                                                modifier = Modifier.height(32.dp)
+                                            ) {
+                                                Text("Select", fontSize = 12.sp)
+                                            }
+                                        }
                                     }
-                                )
+                                }
                             }
                         }
-                        Spacer(modifier = Modifier.height(16.dp))
-                        WorkProgressStepper(steps = steps)
+                    }
+                    Spacer(modifier = Modifier.height(20.dp))
+                }
+
+                if (hasSelectedWork) {
+                    // ── TODAY'S COMPACT SUMMARY METRICS ──
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        HomeMetricCard(
+                            label = "WORK TIME",
+                            value = workViewModel.formatElapsedTime(elapsedSeconds),
+                            color = PrimaryLight,
+                            modifier = Modifier.weight(1f)
+                        )
+                        HomeMetricCard(
+                            label = "PHOTOS",
+                            value = photosCount.toString(),
+                            color = StatusInProgress,
+                            modifier = Modifier.weight(1f)
+                        )
+                        HomeMetricCard(
+                            label = "CHECKLIST",
+                            value = "$totalCompleted/$totalCount",
+                            color = if (totalCompleted == totalCount && totalCount > 0) StatusCompleted else AccentOrange,
+                            modifier = Modifier.weight(1f)
+                        )
+                        HomeMetricCard(
+                            label = "STATUS",
+                            value = when (work.status) {
+                                WorkStatus.NOT_STARTED -> "Not Started"
+                                WorkStatus.IN_PROGRESS -> "In Progress"
+                                WorkStatus.APPROVED -> "Approved"
+                                WorkStatus.COMPLETED -> "Done"
+                                WorkStatus.REJECTED -> "Changes"
+                                else -> "Review"
+                            },
+                            color = when (work.status) {
+                                WorkStatus.APPROVED, WorkStatus.COMPLETED -> StatusCompleted
+                                WorkStatus.REJECTED -> ErrorRed
+                                else -> PrimaryLight
+                            },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(20.dp))
+
+                    // ── WORK PROGRESS STEPPER ──
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(20.dp),
+                        elevation = CardDefaults.cardElevation(4.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                    ) {
+                        Column(modifier = Modifier.padding(20.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Work Progress",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                // Status chip
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(20.dp))
+                                        .background(
+                                            when (work.status) {
+                                                WorkStatus.NOT_STARTED -> AccentOrange.copy(alpha = 0.12f)
+                                                WorkStatus.IN_PROGRESS -> StatusInProgress.copy(alpha = 0.12f)
+                                                WorkStatus.COMPLETED -> StatusCompleted.copy(alpha = 0.12f)
+                                                WorkStatus.REJECTED -> ErrorRed.copy(alpha = 0.12f)
+                                                else -> MaterialTheme.colorScheme.surfaceVariant
+                                            }
+                                        )
+                                        .padding(horizontal = 10.dp, vertical = 4.dp)
+                                ) {
+                                    Text(
+                                        text = when (work.status) {
+                                            WorkStatus.NOT_STARTED -> "Not Started"
+                                            WorkStatus.IN_PROGRESS -> "In Progress"
+                                            WorkStatus.COMPLETED -> "Completed"
+                                            WorkStatus.APPROVED -> "Approved"
+                                            WorkStatus.REJECTED -> "Changes Needed"
+                                            else -> "Pending Review"
+                                        },
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = when (work.status) {
+                                            WorkStatus.NOT_STARTED -> AccentOrange
+                                            WorkStatus.IN_PROGRESS -> StatusInProgress
+                                            WorkStatus.COMPLETED, WorkStatus.APPROVED -> StatusCompleted
+                                            WorkStatus.REJECTED -> ErrorRed
+                                            else -> MaterialTheme.colorScheme.onSurfaceVariant
+                                        }
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(16.dp))
+                            WorkProgressStepper(steps = steps)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(20.dp))
+
+                    // ── TODAY'S WORK ──
+                    val actionLabel = when (work.status) {
+                        WorkStatus.NOT_STARTED -> "Start Work"
+                        WorkStatus.WORK_STARTED, WorkStatus.IN_PROGRESS -> "Continue Work"
+                        WorkStatus.WAITING_FOR_REVIEW,
+                        WorkStatus.WAITING_FOR_POC_REVIEW,
+                        WorkStatus.WAITING_FOR_SUPERVISOR_REVIEW -> "View Review Status"
+                        WorkStatus.APPROVED -> "Complete Work"
+                        WorkStatus.COMPLETED -> "View Completed Work"
+                        WorkStatus.REJECTED -> "Review Changes Required"
+                    }
+
+                    SectionHeader(title = if (activeWorks.size > 1) "Active Work Details" else "Today's Work")
+                    WorkCard(
+                        work = work,
+                        onActionClick = onViewWork,
+                        actionLabel = actionLabel,
+                        progressFraction = checklistProgress
+                    )
+
+                    Spacer(modifier = Modifier.height(20.dp))
+
+                    // ── LOCATION CARD ──
+                    SectionHeader(title = "Work Location")
+                    LocationCard(
+                        companyName = work.companyName,
+                        address = work.address,
+                        distance = work.distance,
+                        onViewLocation = onViewLocation
+                    )
+                } else if (activeWorks.size > 1) {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.Work, contentDescription = null, tint = PrimaryLight)
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text(
+                                text = "Please select one of your predefined works above to inspect details and begin field work.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
+                } else if (activeWorks.isEmpty() && completedWorks.isNotEmpty()) {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(20.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                        elevation = CardDefaults.cardElevation(3.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(
+                                imageVector = Icons.Default.CheckCircle,
+                                contentDescription = "Completed",
+                                tint = StatusCompleted,
+                                modifier = Modifier.size(48.dp)
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text(
+                                text = "All Predefined Works Completed",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = "You have completed all assigned tasks for today.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
+                            completedWorks.forEach { comp ->
+                                Card(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 4.dp),
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(12.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(comp.companyName.ifBlank { comp.title }, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+                                            Text(comp.address, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                        OutlinedButton(
+                                            onClick = {
+                                                workViewModel.selectWork(comp)
+                                                onViewWork()
+                                            },
+                                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                                            modifier = Modifier.height(32.dp)
+                                        ) {
+                                            Text("View Report", fontSize = 11.sp)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Icon(Icons.Default.Work, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(40.dp))
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text("No Predefined Works Assigned", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text("Your predefined works will appear here once configured.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                     }
                 }
-
-                Spacer(modifier = Modifier.height(20.dp))
-
-                // ── TODAY'S WORK ──
-                val actionLabel = when (work.status) {
-                    WorkStatus.NOT_STARTED -> "Start Work"
-                    WorkStatus.WORK_STARTED, WorkStatus.IN_PROGRESS -> "Continue Work"
-                    WorkStatus.WAITING_FOR_REVIEW,
-                    WorkStatus.WAITING_FOR_POC_REVIEW,
-                    WorkStatus.WAITING_FOR_SUPERVISOR_REVIEW -> "View Review Status"
-                    WorkStatus.APPROVED -> "Complete Work"
-                    WorkStatus.COMPLETED -> "View Completed Work"
-                    WorkStatus.REJECTED -> "Review Changes Required"
-                }
-
-                SectionHeader(title = "Today's Work")
-                WorkCard(
-                    work = work,
-                    onActionClick = onViewWork,
-                    actionLabel = actionLabel,
-                    progressFraction = checklistProgress
-                )
-
-                Spacer(modifier = Modifier.height(20.dp))
-
-                // ── LOCATION CARD ──
-                SectionHeader(title = "Work Location")
-                LocationCard(
-                    companyName = work.companyName,
-                    address = work.address,
-                    distance = work.distance,
-                    onViewLocation = onViewLocation
-                )
 
                 Spacer(modifier = Modifier.height(28.dp))
             }

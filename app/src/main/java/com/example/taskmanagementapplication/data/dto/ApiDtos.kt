@@ -14,6 +14,11 @@ data class LoginRequest(
 )
 
 @JsonClass(generateAdapter = true)
+data class RefreshTokenRequest(
+    @Json(name = "refresh_token") val refreshToken: String
+)
+
+@JsonClass(generateAdapter = true)
 data class SupabaseAuthResponse(
     @Json(name = "access_token") val accessToken: String,
     @Json(name = "token_type") val tokenType: String = "bearer",
@@ -190,6 +195,13 @@ data class CreateAdditionalWorkBody(
     @Json(name = "description") val description: String,
     @Json(name = "client_item_id") val clientItemId: String? = null,
     @Json(name = "created_by_id") val createdById: Long? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class AddAdditionalWorkRpcRequest(
+    @Json(name = "p_work_id") val workId: Long,
+    @Json(name = "p_description") val description: String,
+    @Json(name = "p_client_item_id") val clientItemId: String? = null
 )
 
 @JsonClass(generateAdapter = true)

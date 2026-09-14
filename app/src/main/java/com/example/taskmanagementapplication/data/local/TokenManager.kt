@@ -18,11 +18,39 @@ class TokenManager(private val context: Context) {
 
     companion object {
         private val KEY_ACCESS_TOKEN = stringPreferencesKey("access_token")
+        private val KEY_REFRESH_TOKEN = stringPreferencesKey("refresh_token")
         private val KEY_USER_ID = longPreferencesKey("user_id")
         private val KEY_USER_NAME = stringPreferencesKey("user_name")
         private val KEY_USER_EMAIL = stringPreferencesKey("user_email")
         private val KEY_USER_ROLE = stringPreferencesKey("user_role")
         private val KEY_USER_PHONE = stringPreferencesKey("user_phone")
+    }
+
+    suspend fun saveSession(
+        accessToken: String,
+        refreshToken: String?,
+        userId: Long,
+        name: String,
+        email: String,
+        role: String,
+        phone: String?
+    ) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_ACCESS_TOKEN] = accessToken
+            refreshToken?.let { prefs[KEY_REFRESH_TOKEN] = it }
+            prefs[KEY_USER_ID] = userId
+            prefs[KEY_USER_NAME] = name
+            prefs[KEY_USER_EMAIL] = email
+            prefs[KEY_USER_ROLE] = role
+            phone?.let { prefs[KEY_USER_PHONE] = it }
+        }
+    }
+
+    suspend fun updateTokens(accessToken: String, refreshToken: String?) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_ACCESS_TOKEN] = accessToken
+            refreshToken?.let { prefs[KEY_REFRESH_TOKEN] = it }
+        }
     }
 
     suspend fun saveToken(
@@ -33,14 +61,7 @@ class TokenManager(private val context: Context) {
         role: String,
         phone: String?
     ) {
-        context.dataStore.edit { prefs ->
-            prefs[KEY_ACCESS_TOKEN] = token
-            prefs[KEY_USER_ID] = userId
-            prefs[KEY_USER_NAME] = name
-            prefs[KEY_USER_EMAIL] = email
-            prefs[KEY_USER_ROLE] = role
-            phone?.let { prefs[KEY_USER_PHONE] = it }
-        }
+        saveSession(token, null, userId, name, email, role, phone)
     }
 
     suspend fun clearToken() {
@@ -49,6 +70,10 @@ class TokenManager(private val context: Context) {
 
     suspend fun getToken(): String? {
         return context.dataStore.data.first()[KEY_ACCESS_TOKEN]
+    }
+
+    suspend fun getRefreshToken(): String? {
+        return context.dataStore.data.first()[KEY_REFRESH_TOKEN]
     }
 
     suspend fun getUserId(): Long? {

@@ -89,6 +89,7 @@ fun SupervisorReviewScreen(
 ) {
     val work by workViewModel.work.collectAsStateWithLifecycle()
     val elapsedSeconds by workViewModel.elapsedSeconds.collectAsStateWithLifecycle()
+    val isSubmitting by workViewModel.isSubmitting.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
@@ -556,6 +557,7 @@ fun SupervisorReviewScreen(
                     ) {
                         OutlinedButton(
                             onClick = { showRejectSheet = true },
+                            enabled = !isSubmitting,
                             modifier = Modifier
                                 .weight(1f)
                                 .height(52.dp)
@@ -570,6 +572,7 @@ fun SupervisorReviewScreen(
 
                         Button(
                             onClick = { showApproveConfirm = true },
+                            enabled = !isSubmitting,
                             modifier = Modifier
                                 .weight(1f)
                                 .height(52.dp)

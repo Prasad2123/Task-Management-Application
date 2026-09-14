@@ -19,6 +19,9 @@ interface ApiService {
     @POST("auth/v1/token?grant_type=password")
     suspend fun login(@Body request: LoginRequest): Response<SupabaseAuthResponse>
 
+    @POST("auth/v1/token?grant_type=refresh_token")
+    suspend fun refreshToken(@Body request: RefreshTokenRequest): Response<SupabaseAuthResponse>
+
     @POST("rest/v1/rpc/get_current_user_profile")
     suspend fun getCurrentUserProfile(): Response<UserProfileDto>
 
@@ -79,6 +82,11 @@ interface ApiService {
         @Query("work_id") workIdFilter: String,
         @Query("order") order: String = "created_at.asc"
     ): Response<List<AdditionalWorkDto>>
+
+    @POST("rest/v1/rpc/add_additional_work")
+    suspend fun addAdditionalWork(
+        @Body request: AddAdditionalWorkRpcRequest
+    ): Response<AdditionalWorkDto>
 
     @POST("rest/v1/additional_works")
     @Headers("Prefer: return=representation")

@@ -72,7 +72,8 @@ class WorkViewModel @JvmOverloads constructor(
     locationClientInstance: LocationClient? = null,
     networkMonitorInstance: com.example.taskmanagementapplication.core.network.NetworkMonitor? = null,
     cacheInstance: com.example.taskmanagementapplication.data.local.WorkLocalCache? = null,
-    private val ioDispatcher: kotlinx.coroutines.CoroutineDispatcher = Dispatchers.IO
+    private val ioDispatcher: kotlinx.coroutines.CoroutineDispatcher = Dispatchers.IO,
+    initialWork: Work? = null
 ) : AndroidViewModel(application) {
 
     private val tokenManager: TokenManager? = try {
@@ -157,19 +158,39 @@ class WorkViewModel @JvmOverloads constructor(
         }
     }
 
-    constructor() : this(Application())
+    constructor() : this(Application(), initialWork = com.example.taskmanagementapplication.core.mock.MockWorkRepository.demoWork)
+
+    companion object {
+        val EMPTY_WORK = Work(
+            id = "",
+            title = "",
+            companyName = "",
+            address = "",
+            serviceBoyName = "",
+            pocName = "",
+            supervisorName = "",
+            status = WorkStatus.NOT_STARTED,
+            scheduledDate = "",
+            backendId = null
+        )
+    }
 
     // ---- Location State ----
     private val _locationState = MutableStateFlow(LocationState())
     val locationState: StateFlow<LocationState> = _locationState.asStateFlow()
 
     // ---- Core work state ----
-    // Initialized with demo data so screens render immediately;
-    // replaced by real API data once loadMyWork() completes.
     private val _work = MutableStateFlow<Work>(
-        com.example.taskmanagementapplication.core.mock.MockWorkRepository.demoWork
+        initialWork ?: com.example.taskmanagementapplication.core.mock.MockWorkRepository.demoWork
     )
     val work: StateFlow<Work> = _work.asStateFlow()
+
+    val hasActiveWork: Boolean
+        get() = _work.value.backendId != null && _work.value.status != WorkStatus.COMPLETED
+
+    // ---- Predefined works list (for all roles & Admin monitoring) ----
+    private val _predefinedWorks = MutableStateFlow<List<Work>>(emptyList())
+    val predefinedWorks: StateFlow<List<Work>> = _predefinedWorks.asStateFlow()
 
     // ---- Loading / Error states ----
     private val _isLoading = MutableStateFlow(false)
@@ -201,25 +222,8 @@ class WorkViewModel @JvmOverloads constructor(
     val elapsedSeconds: StateFlow<Long> = _elapsedSeconds.asStateFlow()
     private var timerJob: Job? = null
 
-    // ---- Notifications ----
-    private val _notifications = MutableStateFlow<List<AppNotification>>(
-        listOf(
-            AppNotification(
-                id = "N1",
-                title = "Work in progress update",
-                message = "Rahul Patil started Monthly Pest Control Service at ABC Industrial Services.",
-                timestamp = "10:32 AM",
-                isRead = false
-            ),
-            AppNotification(
-                id = "N2",
-                title = "New work evidence photos",
-                message = "5 inspection and treatment photos uploaded for verification.",
-                timestamp = "11:15 AM",
-                isRead = false
-            )
-        )
-    )
+    // ---- Notifications (Real online backend notifications) ----
+    private val _notifications = MutableStateFlow<List<AppNotification>>(emptyList())
     val notifications: StateFlow<List<AppNotification>> = _notifications.asStateFlow()
 
     // -------------------------------------------------------
@@ -227,8 +231,13 @@ class WorkViewModel @JvmOverloads constructor(
     // -------------------------------------------------------
 
     /**
-     * Loads work data for the authenticated user from the backend.
-     * Called by home screens to initialize the work state.
+     * Loads predefined work data for the authenticated user from the backend.
+     * Selects active work dynamically by strict priority:
+     * 1. Preserves current active work if already IN_PROGRESS.
+     * 2. Prioritizes any work that is IN_PROGRESS over pending work.
+     * 3. If exactly one active work exists, auto-selects it.
+     * 4. If multiple active works exist, preserves existing valid selection or exposes list for user selection.
+     * 5. Never auto-selects COMPLETED work as active.
      */
     fun loadMyWork() {
         val repo = workRepository
@@ -250,24 +259,47 @@ class WorkViewModel @JvmOverloads constructor(
             when (val result = repo.getMyWorks()) {
                 is NetworkResult.Success -> {
                     val works = result.data
-                    if (works.isNotEmpty()) {
-                        val targetWork = works.find { it.backendId == 2L }
-                            ?: works.find { it.status != WorkStatus.COMPLETED }
-                            ?: works.first()
-                        _work.value = targetWork
-                        // If work is in progress, start the display timer
-                        if (targetWork.status == WorkStatus.IN_PROGRESS) {
-                            startTimer()
-                        }
-                        // Load sub-resources
-                        targetWork.backendId?.let { workId ->
-                            loadChecklist(workId)
-                            loadAdditionalWork(workId)
-                            loadApprovals(workId)
-                            loadPhotos(workId)
-                        }
-                        persistSnapshot()
+                    _predefinedWorks.value = works
+
+                    val activeWorks = works.filter { it.status != WorkStatus.COMPLETED }
+                    val currentBackendId = _work.value.backendId
+
+                    // 1. Preserve current work if already IN_PROGRESS
+                    val currentInProgress = if (currentBackendId != null) {
+                        activeWorks.find { it.backendId == currentBackendId && (it.status == WorkStatus.IN_PROGRESS || it.status == WorkStatus.WORK_STARTED) }
+                    } else null
+
+                    // 2. IN_PROGRESS work takes top priority over merely pending work
+                    val anyInProgress = currentInProgress ?: activeWorks.find {
+                        it.status == WorkStatus.IN_PROGRESS || it.status == WorkStatus.WORK_STARTED
                     }
+
+                    val targetWork: Work? = when {
+                        anyInProgress != null -> anyInProgress
+                        // Preserve existing valid user selection among active works
+                        currentBackendId != null && activeWorks.any { it.backendId == currentBackendId } -> {
+                            activeWorks.first { it.backendId == currentBackendId }
+                        }
+                        // Exactly 1 active work exists: show it
+                        activeWorks.size == 1 -> activeWorks.first()
+                        // Multiple active works exist: require user selection (never arbitrary fallback)
+                        activeWorks.size > 1 -> null
+                        // Zero active works (e.g. all completed or none assigned): never select completed work
+                        else -> null
+                    }
+
+                    if (targetWork != null) {
+                        selectWork(targetWork)
+                    } else {
+                        // Clear active work if current selection is invalid or all works completed
+                        if (activeWorks.isEmpty() || (currentBackendId != null && activeWorks.none { it.backendId == currentBackendId })) {
+                            _work.value = EMPTY_WORK
+                            stopTimer()
+                        }
+                    }
+
+                    loadNotifications()
+                    persistSnapshot()
                 }
                 is NetworkResult.Error -> {
                     // On error, fall back to offline cache if available
@@ -354,6 +386,42 @@ class WorkViewModel @JvmOverloads constructor(
                 else -> {}
             }
         }
+    }
+
+    fun loadActivity(workId: Long) {
+        val repo = workRepository ?: return
+        viewModelScope.launch {
+            when (val result = repo.getActivity(workId)) {
+                is NetworkResult.Success -> {
+                    _work.update { it.copy(activityLog = result.data) }
+                    persistSnapshot()
+                }
+                else -> {}
+            }
+        }
+    }
+
+    fun selectWork(selected: Work) {
+        _work.value = selected
+        if (selected.status == WorkStatus.IN_PROGRESS || selected.status == WorkStatus.WORK_STARTED) {
+            startTimer()
+        } else {
+            stopTimer()
+        }
+        selected.backendId?.let { workId ->
+            loadChecklist(workId)
+            loadAdditionalWork(workId)
+            loadApprovals(workId)
+            loadPhotos(workId)
+            loadActivity(workId)
+        }
+        persistSnapshot()
+    }
+
+    fun clearSelectedWork() {
+        _work.value = EMPTY_WORK
+        stopTimer()
+        persistSnapshot()
     }
 
     private fun updateWorkApprovalState(approvals: List<ApprovalDto>) {
@@ -525,6 +593,7 @@ class WorkViewModel @JvmOverloads constructor(
                     is NetworkResult.Success -> {
                         _work.value = result.data
                         startTimer()
+                        loadActivity(workId)
                         persistSnapshot()
                         onSuccess?.invoke()
                     }
@@ -774,7 +843,7 @@ class WorkViewModel @JvmOverloads constructor(
                 when (val result = repo.submitForReview(workId)) {
                     is NetworkResult.Success -> {
                         _work.value = result.data
-                        addActivity("Work submitted for review", now)
+                        loadActivity(workId)
                         persistSnapshot()
                     }
                     is NetworkResult.Error -> {
@@ -888,7 +957,7 @@ class WorkViewModel @JvmOverloads constructor(
                             is NetworkResult.Success -> _work.value = workResult.data
                             else -> _work.update { it.copy(status = WorkStatus.WAITING_FOR_SUPERVISOR_REVIEW, pocApproved = true) }
                         }
-                        addActivity("POC approved work (${currentWork.pocName})", currentTimeString())
+                        loadActivity(workId)
                         persistSnapshot()
                     }
                     is NetworkResult.Error -> {
@@ -965,7 +1034,7 @@ class WorkViewModel @JvmOverloads constructor(
                             is NetworkResult.Success -> _work.value = workResult.data
                             else -> _work.update { it.copy(status = WorkStatus.REJECTED, pocApproved = false, pocRejectionReason = trimmed) }
                         }
-                        addActivity("POC requested changes: \"$trimmed\"", currentTimeString())
+                        loadActivity(workId)
                         persistSnapshot()
                     }
                     is NetworkResult.Error -> {
@@ -1032,7 +1101,7 @@ class WorkViewModel @JvmOverloads constructor(
                             is NetworkResult.Success -> _work.value = workResult.data
                             else -> _work.update { it.copy(status = WorkStatus.APPROVED, supervisorApproved = true, readyForCompletion = true) }
                         }
-                        addActivity("Supervisor approved work (${currentWork.supervisorName})", currentTimeString())
+                        loadActivity(workId)
                         persistSnapshot()
                     }
                     is NetworkResult.Error -> {
@@ -1110,7 +1179,7 @@ class WorkViewModel @JvmOverloads constructor(
                             is NetworkResult.Success -> _work.value = workResult.data
                             else -> _work.update { it.copy(status = WorkStatus.REJECTED, supervisorApproved = false, supervisorRejectionReason = trimmed) }
                         }
-                        addActivity("Supervisor requested changes: \"$trimmed\"", currentTimeString())
+                        loadActivity(workId)
                         persistSnapshot()
                     }
                     is NetworkResult.Error -> {
@@ -1171,7 +1240,7 @@ class WorkViewModel @JvmOverloads constructor(
                         timerJob?.cancel()
                         _work.value = result.data
                         loadNotifications()
-                        addActivity("Work completed and closed", now)
+                        loadActivity(workId)
                         persistSnapshot()
                     }
                     is NetworkResult.Error -> {
@@ -1226,7 +1295,7 @@ class WorkViewModel @JvmOverloads constructor(
                         _work.value = result.data
                         loadApprovals(workId)
                         loadNotifications()
-                        addActivity("Work resumed to address review feedback", now)
+                        loadActivity(workId)
                         startTimer()
                         persistSnapshot()
                     }

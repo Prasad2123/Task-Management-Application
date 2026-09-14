@@ -162,13 +162,7 @@ fun ProfileScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Server Connection Card (Physical device Wi-Fi connectivity)
-            val context = androidx.compose.ui.platform.LocalContext.current
-            var showServerDialog by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
-            var serverUrlText by androidx.compose.runtime.remember {
-                androidx.compose.runtime.mutableStateOf(com.example.taskmanagementapplication.core.network.ServerConfig.getBaseUrl(context))
-            }
-
+            // System Information Card
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(20.dp),
@@ -178,75 +172,46 @@ fun ProfileScreen(
                 )
             ) {
                 Column(modifier = Modifier.padding(20.dp)) {
+                    Text(
+                        text = "System Information",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween
                     ) {
                         Text(
-                            text = "Server Connection",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
+                            text = "Cloud Architecture:",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                        androidx.compose.material3.TextButton(onClick = { showServerDialog = true }) {
-                            Text("Configure")
-                        }
+                        Text(
+                            text = "Online Supabase (HTTPS)",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = PrimaryLight
+                        )
                     }
                     Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "Active Server URL:",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        text = serverUrlText,
-                        style = MaterialTheme.typography.bodySmall,
-                        fontWeight = FontWeight.Medium,
-                        color = PrimaryLight
-                    )
-                }
-            }
-
-            if (showServerDialog) {
-                androidx.compose.material3.AlertDialog(
-                    onDismissRequest = { showServerDialog = false },
-                    title = { Text("Configure Server URL") },
-                    text = {
-                        Column {
-                            Text(
-                                "Enter backend server URL (e.g. for Wi-Fi testing with physical device):",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Spacer(modifier = Modifier.height(12.dp))
-                            androidx.compose.material3.OutlinedTextField(
-                                value = serverUrlText,
-                                onValueChange = { serverUrlText = it },
-                                label = { Text("Base URL") },
-                                singleLine = true,
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                        }
-                    },
-                    confirmButton = {
-                        androidx.compose.material3.Button(onClick = {
-                            com.example.taskmanagementapplication.core.network.ServerConfig.setBaseUrl(context, serverUrlText)
-                            serverUrlText = com.example.taskmanagementapplication.core.network.ServerConfig.getBaseUrl(context)
-                            showServerDialog = false
-                        }) {
-                            Text("Save")
-                        }
-                    },
-                    dismissButton = {
-                        androidx.compose.material3.TextButton(onClick = {
-                            com.example.taskmanagementapplication.core.network.ServerConfig.setBaseUrl(context, null)
-                            serverUrlText = com.example.taskmanagementapplication.core.network.ServerConfig.getBaseUrl(context)
-                            showServerDialog = false
-                        }) {
-                            Text("Reset Default")
-                        }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "Application Status:",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = "Production Ready",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
                     }
-                )
+                }
             }
 
             Spacer(modifier = Modifier.height(28.dp))
@@ -296,4 +261,5 @@ private fun UserRole.displayName(): String = when (this) {
     UserRole.SERVICE_BOY -> "Service Engineer"
     UserRole.POC -> "Person of Contact"
     UserRole.SITE_SUPERVISOR -> "Site Supervisor"
+    UserRole.ADMIN -> "Operations Administrator"
 }

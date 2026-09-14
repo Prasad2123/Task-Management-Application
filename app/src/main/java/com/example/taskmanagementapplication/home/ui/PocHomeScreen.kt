@@ -202,7 +202,7 @@ fun PocHomeScreen(
                                     color = Color.White.copy(alpha = 0.85f)
                                 )
                                 Text(
-                                    text = currentUser?.name ?: "Amit Kumar",
+                                    text = currentUser?.name ?: "Site POC",
                                     style = MaterialTheme.typography.titleLarge,
                                     fontWeight = FontWeight.Bold,
                                     color = Color.White
@@ -374,7 +374,7 @@ fun PocHomeScreen(
                                     )
                                     Spacer(modifier = Modifier.width(6.dp))
                                     Text(
-                                        text = "Rahul Sharma",
+                                        text = work.serviceBoyName.ifBlank { "Service Engineer" },
                                         style = MaterialTheme.typography.labelMedium,
                                         fontWeight = FontWeight.SemiBold
                                     )

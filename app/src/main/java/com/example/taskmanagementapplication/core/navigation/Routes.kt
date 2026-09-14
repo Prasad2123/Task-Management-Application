@@ -28,4 +28,7 @@ object Routes {
     // Common
     const val PROFILE = "profile"
     const val WORK_REPORT = "work_report"
+
+    // Admin Monitoring
+    const val ADMIN_DASHBOARD = "admin_dashboard"
 }
