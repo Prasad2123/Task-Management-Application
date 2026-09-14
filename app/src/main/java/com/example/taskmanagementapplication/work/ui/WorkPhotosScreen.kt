@@ -30,7 +30,9 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.HourglassTop
 import androidx.compose.material.icons.filled.PhotoLibrary
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.WarningAmber
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -107,6 +109,10 @@ fun WorkPhotosScreen(
     // Submit for review confirmation dialog
     var showSubmitConfirmation by remember { mutableStateOf(false) }
 
+    LaunchedEffect(work.backendId) {
+        work.backendId?.let { workViewModel.loadPhotos(it) }
+    }
+
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         containerColor = MaterialTheme.colorScheme.background,
@@ -159,6 +165,19 @@ fun WorkPhotosScreen(
                         modifier = Modifier.semantics { contentDescription = "Back from Work Photos" }
                     ) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                actions = {
+                    IconButton(
+                        onClick = {
+                            work.backendId?.let {
+                                workViewModel.loadPhotos(it)
+                                scope.launch { snackbarHostState.showSnackbar("Photos refreshed") }
+                            }
+                        },
+                        modifier = Modifier.semantics { contentDescription = "Refresh photos" }
+                    ) {
+                        Icon(Icons.Default.Refresh, contentDescription = "Refresh")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)

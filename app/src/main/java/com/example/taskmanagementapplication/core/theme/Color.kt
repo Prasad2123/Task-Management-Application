@@ -32,6 +32,8 @@ val StatusWaitingReview = Color(0xFFF57C00)
 val StatusApproved = Color(0xFF388E3C)
 val StatusCompleted = Color(0xFF2E7D32)
 val StatusRejected = Color(0xFFD32F2F)
+val StatusFailed = StatusRejected
+val StatusPending = StatusWaitingReview
 
 // Error
 val ErrorRed = Color(0xFFB00020)

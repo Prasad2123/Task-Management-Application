@@ -28,6 +28,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -47,7 +48,8 @@ import com.example.taskmanagementapplication.core.theme.PrimaryLight
 fun NotificationBottomSheet(
     notifications: List<AppNotification>,
     onDismiss: () -> Unit,
-    onNotificationClick: (String) -> Unit
+    onNotificationClick: (String) -> Unit,
+    onMarkAllAsRead: (() -> Unit)? = null
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val unreadCount = notifications.count { !it.isRead }
@@ -89,6 +91,15 @@ fun NotificationBottomSheet(
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
                             )
                         }
+                    }
+                }
+                if (unreadCount > 0 && onMarkAllAsRead != null) {
+                    TextButton(onClick = onMarkAllAsRead) {
+                        Text(
+                            text = "Mark all read",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = PrimaryLight
+                        )
                     }
                 }
             }

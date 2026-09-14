@@ -70,6 +70,7 @@ fun WorkLocationScreen(
     workViewModel: WorkViewModel
 ) {
     val work by workViewModel.work.collectAsStateWithLifecycle()
+    val locationState by workViewModel.locationState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
@@ -97,15 +98,20 @@ fun WorkLocationScreen(
         ) {
             Spacer(modifier = Modifier.height(6.dp))
 
-            // ── MAP PREVIEW CARD ──
             val context = androidx.compose.ui.platform.LocalContext.current
+            val displayDistance = locationState.distanceFromWorkMeters?.let {
+                com.example.taskmanagementapplication.core.util.GeoUtils.formatDistance(it)
+            } ?: work.distance.ifBlank { "Locating..." }
+
             MapPlaceholderCard(
                 companyName = work.companyName,
                 address = work.address,
-                distance = work.distance,
+                distance = displayDistance,
                 onViewLocation = {
                     com.example.taskmanagementapplication.core.util.MapUtils.openGoogleMaps(
                         context,
+                        work.latitude,
+                        work.longitude,
                         work.address,
                         work.companyName
                     )
@@ -161,25 +167,35 @@ fun WorkLocationScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        val isInside = locationState.isInsideRadius
+                        val distText = locationState.distanceFromWorkMeters?.let {
+                            "${com.example.taskmanagementapplication.core.util.GeoUtils.formatDistance(it)} from site"
+                        } ?: "GPS checking..."
+
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.LocationOn, null, tint = StatusCompleted, modifier = Modifier.size(18.dp))
+                            Icon(
+                                Icons.Default.LocationOn,
+                                null,
+                                tint = if (isInside) StatusCompleted else PrimaryLight,
+                                modifier = Modifier.size(18.dp)
+                            )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = "120 m from site perimeter",
+                                text = distText,
                                 style = MaterialTheme.typography.labelMedium,
                                 fontWeight = FontWeight.SemiBold,
-                                color = StatusCompleted
+                                color = if (isInside) StatusCompleted else MaterialTheme.colorScheme.onSurface
                             )
                         }
 
                         Surface(
                             shape = RoundedCornerShape(8.dp),
-                            color = StatusCompleted.copy(alpha = 0.1f)
+                            color = (if (isInside) StatusCompleted else PrimaryLight).copy(alpha = 0.1f)
                         ) {
                             Text(
-                                text = "VERIFIED",
+                                text = if (isInside) "VERIFIED" else "RADIUS: ${com.example.taskmanagementapplication.core.util.GeoUtils.formatDistance(locationState.allowedRadiusMeters)}",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = StatusCompleted,
+                                color = if (isInside) StatusCompleted else PrimaryLight,
                                 fontWeight = FontWeight.Bold,
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                             )
@@ -260,6 +276,8 @@ fun WorkLocationScreen(
                 onClick = {
                     com.example.taskmanagementapplication.core.util.MapUtils.openGoogleMaps(
                         context,
+                        work.latitude,
+                        work.longitude,
                         work.address,
                         work.companyName
                     )

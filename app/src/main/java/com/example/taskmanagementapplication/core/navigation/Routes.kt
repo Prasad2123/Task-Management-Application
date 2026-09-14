@@ -27,4 +27,5 @@ object Routes {
 
     // Common
     const val PROFILE = "profile"
+    const val WORK_REPORT = "work_report"
 }

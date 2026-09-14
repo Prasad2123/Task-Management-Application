@@ -59,6 +59,7 @@ fun WorkDetailsScreen(
     onBack: () -> Unit,
     onStartWork: () -> Unit = {},
     onViewLocation: () -> Unit = {},
+    onViewReport: () -> Unit = {},
     workViewModel: WorkViewModel = viewModel()
 ) {
     val work by workViewModel.work.collectAsStateWithLifecycle()
@@ -246,10 +247,16 @@ fun WorkDetailsScreen(
                 text = when (work.status) {
                     WorkStatus.NOT_STARTED -> "Proceed to Start Work"
                     WorkStatus.IN_PROGRESS, WorkStatus.WORK_STARTED -> "Resume Work in Progress"
-                    WorkStatus.COMPLETED -> "Work Completed"
+                    WorkStatus.COMPLETED -> "View Final Work Report"
                     else -> "View Active Session"
                 },
-                onClick = onStartWork
+                onClick = {
+                    if (work.status == WorkStatus.COMPLETED) {
+                        onViewReport()
+                    } else {
+                        onStartWork()
+                    }
+                }
             )
 
             Spacer(modifier = Modifier.height(32.dp))

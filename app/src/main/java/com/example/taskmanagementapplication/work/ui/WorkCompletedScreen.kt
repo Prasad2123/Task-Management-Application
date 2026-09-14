@@ -57,6 +57,7 @@ import com.example.taskmanagementapplication.work.viewmodel.WorkViewModel
 @Composable
 fun WorkCompletedScreen(
     onBackToHome: () -> Unit,
+    onViewReport: () -> Unit = {},
     workViewModel: WorkViewModel
 ) {
     val work by workViewModel.work.collectAsStateWithLifecycle()
@@ -192,15 +193,31 @@ fun WorkCompletedScreen(
                 Spacer(modifier = Modifier.height(28.dp))
             }
 
-            // ── BACK TO HOME BUTTON ──
+            // ── VIEW FINAL WORK REPORT BUTTON ──
             Button(
+                onClick = onViewReport,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(54.dp)
+                    .semantics { contentDescription = "View final work report" },
+                shape = RoundedCornerShape(16.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = PrimaryLight)
+            ) {
+                Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(20.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("View Final Work Report", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // ── BACK TO HOME BUTTON ──
+            androidx.compose.material3.OutlinedButton(
                 onClick = onBackToHome,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(54.dp)
                     .semantics { contentDescription = "Back to home screen" },
-                shape = RoundedCornerShape(16.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = PrimaryLight)
+                shape = RoundedCornerShape(16.dp)
             ) {
                 Icon(Icons.Default.Home, contentDescription = null, modifier = Modifier.size(20.dp))
                 Spacer(modifier = Modifier.width(8.dp))

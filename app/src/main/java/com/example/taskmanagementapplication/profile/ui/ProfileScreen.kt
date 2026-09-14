@@ -31,6 +31,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -156,7 +160,96 @@ fun ProfileScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Server Connection Card (Physical device Wi-Fi connectivity)
+            val context = androidx.compose.ui.platform.LocalContext.current
+            var showServerDialog by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+            var serverUrlText by androidx.compose.runtime.remember {
+                androidx.compose.runtime.mutableStateOf(com.example.taskmanagementapplication.core.network.ServerConfig.getBaseUrl(context))
+            }
+
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(20.dp),
+                elevation = CardDefaults.cardElevation(4.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surface
+                )
+            ) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "Server Connection",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        androidx.compose.material3.TextButton(onClick = { showServerDialog = true }) {
+                            Text("Configure")
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Active Server URL:",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = serverUrlText,
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Medium,
+                        color = PrimaryLight
+                    )
+                }
+            }
+
+            if (showServerDialog) {
+                androidx.compose.material3.AlertDialog(
+                    onDismissRequest = { showServerDialog = false },
+                    title = { Text("Configure Server URL") },
+                    text = {
+                        Column {
+                            Text(
+                                "Enter backend server URL (e.g. for Wi-Fi testing with physical device):",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            androidx.compose.material3.OutlinedTextField(
+                                value = serverUrlText,
+                                onValueChange = { serverUrlText = it },
+                                label = { Text("Base URL") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                    },
+                    confirmButton = {
+                        androidx.compose.material3.Button(onClick = {
+                            com.example.taskmanagementapplication.core.network.ServerConfig.setBaseUrl(context, serverUrlText)
+                            serverUrlText = com.example.taskmanagementapplication.core.network.ServerConfig.getBaseUrl(context)
+                            showServerDialog = false
+                        }) {
+                            Text("Save")
+                        }
+                    },
+                    dismissButton = {
+                        androidx.compose.material3.TextButton(onClick = {
+                            com.example.taskmanagementapplication.core.network.ServerConfig.setBaseUrl(context, null)
+                            serverUrlText = com.example.taskmanagementapplication.core.network.ServerConfig.getBaseUrl(context)
+                            showServerDialog = false
+                        }) {
+                            Text("Reset Default")
+                        }
+                    }
+                )
+            }
+
+            Spacer(modifier = Modifier.height(28.dp))
 
             // Logout button
             SecondaryButton(

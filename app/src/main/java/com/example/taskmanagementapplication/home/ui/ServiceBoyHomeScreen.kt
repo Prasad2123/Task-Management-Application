@@ -16,24 +16,32 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.NavigateNext
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Work
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -56,6 +64,7 @@ import com.example.taskmanagementapplication.core.theme.PrimaryLight
 import com.example.taskmanagementapplication.core.theme.StatusCompleted
 import com.example.taskmanagementapplication.core.theme.StatusInProgress
 import com.example.taskmanagementapplication.core.ui.AvatarPlaceholder
+import com.example.taskmanagementapplication.core.ui.NotificationBottomSheet
 import com.example.taskmanagementapplication.core.ui.SectionHeader
 import com.example.taskmanagementapplication.core.ui.StepState
 import com.example.taskmanagementapplication.core.ui.WorkCard
@@ -78,7 +87,10 @@ fun ServiceBoyHomeScreen(
     val currentUser by authViewModel.currentUser.collectAsStateWithLifecycle()
     val work by workViewModel.work.collectAsStateWithLifecycle()
     val elapsedSeconds by workViewModel.elapsedSeconds.collectAsStateWithLifecycle()
+    val notifications by workViewModel.notifications.collectAsStateWithLifecycle()
+    val unreadNotificationsCount = notifications.count { !it.isRead }
     var selectedTab by remember { mutableStateOf(ServiceBoyTab.HOME) }
+    var showNotificationsSheet by remember { mutableStateOf(false) }
 
     val totalCompleted = workViewModel.getTotalCompletedCount(work)
     val totalCount = workViewModel.getTotalCount(work)
@@ -121,9 +133,25 @@ fun ServiceBoyHomeScreen(
         )
     )
 
+    val errorMessage by workViewModel.errorMessage.collectAsStateWithLifecycle()
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    LaunchedEffect(Unit) {
+        workViewModel.loadMyWork()
+        workViewModel.loadNotifications()
+    }
+
+    LaunchedEffect(errorMessage) {
+        errorMessage?.let {
+            snackbarHostState.showSnackbar(it)
+            workViewModel.clearError()
+        }
+    }
+
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         contentWindowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0),
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         bottomBar = {
             NavigationBar(
                 containerColor = MaterialTheme.colorScheme.surface,
@@ -208,6 +236,32 @@ fun ServiceBoyHomeScreen(
                             color = Color.White.copy(alpha = 0.85f)
                         )
                     }
+
+                    // Notification Bell
+                    IconButton(
+                        onClick = { showNotificationsSheet = true },
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .background(Color.White.copy(alpha = 0.18f))
+                    ) {
+                        BadgedBox(
+                            badge = {
+                                if (unreadNotificationsCount > 0) {
+                                    Badge(containerColor = AccentOrange) {
+                                        Text(unreadNotificationsCount.toString())
+                                    }
+                                }
+                            }
+                        ) {
+                            Icon(
+                                Icons.Default.Notifications,
+                                contentDescription = "Notifications",
+                                tint = Color.White
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.width(12.dp))
                     AvatarPlaceholder(name = currentUser?.name ?: "Rahul Patil", size = 56.dp)
                 }
             }
@@ -355,6 +409,22 @@ fun ServiceBoyHomeScreen(
                 Spacer(modifier = Modifier.height(28.dp))
             }
         }
+    }
+
+    // ── NOTIFICATIONS BOTTOM SHEET ──
+    if (showNotificationsSheet) {
+        NotificationBottomSheet(
+            notifications = notifications,
+            onDismiss = { showNotificationsSheet = false },
+            onNotificationClick = { notificationId ->
+                workViewModel.markNotificationRead(notificationId)
+                showNotificationsSheet = false
+                onViewWork()
+            },
+            onMarkAllAsRead = {
+                workViewModel.markAllNotificationsAsRead()
+            }
+        )
     }
 }
 

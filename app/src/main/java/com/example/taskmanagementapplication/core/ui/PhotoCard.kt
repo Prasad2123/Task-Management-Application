@@ -5,6 +5,12 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import coil.compose.SubcomposeAsyncImage
+import coil.request.ImageRequest
+import com.example.taskmanagementapplication.data.local.TokenManager
+import com.example.taskmanagementapplication.data.network.NetworkModule
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -379,6 +385,40 @@ fun PhotoStatusBadge(
  */
 @Composable
 fun PhotoThumbnailView(
+    photo: WorkPhoto,
+    modifier: Modifier = Modifier,
+    contentScale: ContentScale = ContentScale.Crop
+) {
+    val imageSource: Any? = photo.localUri ?: photo.remoteUrl
+
+    if (imageSource != null) {
+        val context = LocalContext.current
+        val tokenManager = remember { TokenManager(context) }
+        val imageLoader = remember(tokenManager) { NetworkModule.createImageLoader(context, tokenManager) }
+
+        SubcomposeAsyncImage(
+            model = ImageRequest.Builder(context)
+                .data(imageSource)
+                .crossfade(true)
+                .build(),
+            imageLoader = imageLoader,
+            contentDescription = photo.title,
+            contentScale = contentScale,
+            modifier = modifier,
+            loading = {
+                ProceduralPhotoThumbnail(photo = photo, modifier = Modifier.fillMaxSize())
+            },
+            error = {
+                ProceduralPhotoThumbnail(photo = photo, modifier = Modifier.fillMaxSize())
+            }
+        )
+    } else {
+        ProceduralPhotoThumbnail(photo = photo, modifier = modifier)
+    }
+}
+
+@Composable
+fun ProceduralPhotoThumbnail(
     photo: WorkPhoto,
     modifier: Modifier = Modifier
 ) {

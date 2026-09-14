@@ -40,9 +40,12 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -76,13 +79,28 @@ fun SupervisorHomeScreen(
     authViewModel: AuthViewModel,
     onReviewWork: () -> Unit,
     onOpenProfile: () -> Unit,
+    onViewReport: () -> Unit = {},
     workViewModel: WorkViewModel = viewModel()
 ) {
     val currentUser by authViewModel.currentUser.collectAsStateWithLifecycle()
     val work by workViewModel.work.collectAsStateWithLifecycle()
     val notifications by workViewModel.notifications.collectAsStateWithLifecycle()
+    val errorMessage by workViewModel.errorMessage.collectAsStateWithLifecycle()
+    val snackbarHostState = remember { SnackbarHostState() }
     var selectedTab by remember { mutableStateOf(SupervisorTab.HOME) }
     var showNotificationsSheet by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        workViewModel.loadMyWork()
+        workViewModel.loadNotifications()
+    }
+
+    LaunchedEffect(errorMessage) {
+        errorMessage?.let {
+            snackbarHostState.showSnackbar(it)
+            workViewModel.clearError()
+        }
+    }
 
     val unreadNotificationsCount = notifications.count { !it.isRead }
     val isPendingSupervisorReview = work.status == WorkStatus.WAITING_FOR_SUPERVISOR_REVIEW
@@ -94,6 +112,7 @@ fun SupervisorHomeScreen(
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         contentWindowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0),
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         bottomBar = {
             NavigationBar(
                 containerColor = MaterialTheme.colorScheme.surface,
@@ -458,6 +477,30 @@ fun SupervisorHomeScreen(
                             Spacer(modifier = Modifier.height(12.dp))
                         }
 
+                        if (work.status == WorkStatus.COMPLETED) {
+                            Button(
+                                onClick = onViewReport,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(50.dp),
+                                shape = RoundedCornerShape(14.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = PrimaryLight)
+                            ) {
+                                Icon(
+                                    Icons.Default.Assignment,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "View Work Completion Report",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 15.sp
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(10.dp))
+                        }
+
                         Button(
                             onClick = onReviewWork,
                             modifier = Modifier
@@ -497,6 +540,9 @@ fun SupervisorHomeScreen(
                 workViewModel.markNotificationRead(notificationId)
                 showNotificationsSheet = false
                 onReviewWork()
+            },
+            onMarkAllAsRead = {
+                workViewModel.markAllNotificationsAsRead()
             }
         )
     }

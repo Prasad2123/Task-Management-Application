@@ -21,13 +21,20 @@ import com.example.taskmanagementapplication.splash.SplashScreen
 import com.example.taskmanagementapplication.work.ui.ApprovalStatusScreen
 import com.example.taskmanagementapplication.work.ui.CompleteWorkScreen
 import com.example.taskmanagementapplication.work.ui.WorkCompletedScreen
+import com.example.taskmanagementapplication.work.ui.WorkReportScreen
 import com.example.taskmanagementapplication.work.ui.StartWorkScreen
 import com.example.taskmanagementapplication.work.ui.WorkChecklistScreen
 import com.example.taskmanagementapplication.work.ui.WorkDetailsScreen
 import com.example.taskmanagementapplication.work.ui.WorkInProgressScreen
 import com.example.taskmanagementapplication.work.ui.WorkLocationScreen
 import com.example.taskmanagementapplication.work.ui.WorkPhotosScreen
+import com.example.taskmanagementapplication.core.ui.NetworkStatusBar
 import com.example.taskmanagementapplication.work.viewmodel.WorkViewModel
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.Modifier
 
 @Composable
 fun AppNavHost(
@@ -36,11 +43,43 @@ fun AppNavHost(
 ) {
     // Single shared WorkViewModel for the entire application flow across all roles
     val workViewModel: WorkViewModel = viewModel()
+    val networkStatus by workViewModel.networkStatus.collectAsStateWithLifecycle()
+    val lastSyncedText by workViewModel.lastSyncedText.collectAsStateWithLifecycle()
 
-    NavHost(
-        navController = navController,
-        startDestination = Routes.SPLASH
-    ) {
+    // Listen to 401 session expiry events
+    LaunchedEffect(Unit) {
+        com.example.taskmanagementapplication.core.network.AuthEventBus.sessionExpired.collect {
+            navController.navigate(Routes.LOGIN) {
+                popUpTo(0) { inclusive = true }
+            }
+        }
+    }
+
+    // Lifecycle observer for app resume synchronization
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                workViewModel.syncOnResume()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        NetworkStatusBar(
+            networkStatus = networkStatus,
+            lastSyncedText = lastSyncedText
+        )
+
+        NavHost(
+            navController = navController,
+            startDestination = Routes.SPLASH,
+            modifier = Modifier.weight(1f)
+        ) {
 
         composable(Routes.SPLASH) {
             SplashScreen(
@@ -56,6 +95,7 @@ fun AppNavHost(
             LoginScreen(
                 authViewModel = authViewModel,
                 onLoginSuccess = { user ->
+                    workViewModel.loadMyWork()
                     val destination = when (user.role) {
                         UserRole.SERVICE_BOY -> Routes.SERVICE_HOME
                         UserRole.POC -> Routes.POC_HOME
@@ -101,6 +141,7 @@ fun AppNavHost(
                     }
                 },
                 onViewLocation = { navController.navigate(Routes.WORK_LOCATION) },
+                onViewReport = { navController.navigate(Routes.WORK_REPORT) },
                 workViewModel = workViewModel
             )
         }
@@ -208,6 +249,14 @@ fun AppNavHost(
                         popUpTo(Routes.SERVICE_HOME) { inclusive = true }
                     }
                 },
+                onViewReport = { navController.navigate(Routes.WORK_REPORT) },
+                workViewModel = workViewModel
+            )
+        }
+
+        composable(Routes.WORK_REPORT) {
+            WorkReportScreen(
+                onBack = { navController.popBackStack() },
                 workViewModel = workViewModel
             )
         }
@@ -217,6 +266,7 @@ fun AppNavHost(
                 authViewModel = authViewModel,
                 onReviewWork = { navController.navigate(Routes.POC_REVIEW) },
                 onOpenProfile = { navController.navigate(Routes.PROFILE) },
+                onViewReport = { navController.navigate(Routes.WORK_REPORT) },
                 workViewModel = workViewModel
             )
         }
@@ -233,6 +283,7 @@ fun AppNavHost(
                 authViewModel = authViewModel,
                 onReviewWork = { navController.navigate(Routes.SUPERVISOR_REVIEW) },
                 onOpenProfile = { navController.navigate(Routes.PROFILE) },
+                onViewReport = { navController.navigate(Routes.WORK_REPORT) },
                 workViewModel = workViewModel
             )
         }
@@ -258,4 +309,5 @@ fun AppNavHost(
             )
         }
     }
+}
 }

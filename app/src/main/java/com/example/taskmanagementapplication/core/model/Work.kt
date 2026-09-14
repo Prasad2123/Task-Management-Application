@@ -7,7 +7,7 @@ enum class WorkStatus {
     WAITING_FOR_REVIEW,
     WAITING_FOR_POC_REVIEW,
     WAITING_FOR_SUPERVISOR_REVIEW,
-    APPROVED,
+    APPROVED,          // Maps to SUPERVISOR_APPROVED from backend
     COMPLETED,
     REJECTED
 }
@@ -26,7 +26,10 @@ data class ActivityEvent(
     val id: String,
     val description: String,
     val timestamp: String,
-    val isDone: Boolean = true
+    val isDone: Boolean = true,
+    val latitude: Double? = null,
+    val longitude: Double? = null,
+    val accuracyMeters: Double? = null
 )
 
 enum class PhotoUploadStatus {
@@ -54,7 +57,10 @@ data class WorkPhoto(
     val caption: String? = null,
     val uploadProgress: Float = 1.0f,
     val isSelected: Boolean = false,
-    val gradientSeed: Int = 0
+    val gradientSeed: Int = 0,
+    val localUri: String? = null,
+    val remoteUrl: String? = null,
+    val backendId: Long? = null
 )
 
 enum class ApprovalState {
@@ -62,6 +68,17 @@ enum class ApprovalState {
     APPROVED,
     REJECTED
 }
+
+/**
+ * Additional/extra work item — backed by backend additional_works table.
+ */
+data class AdditionalWorkItem(
+    val id: String,
+    val workId: String,
+    val description: String,
+    val createdByName: String = "",
+    val createdAt: String = ""
+)
 
 data class Work(
     val id: String,
@@ -77,7 +94,12 @@ data class Work(
     val endTime: String? = null,
     val notes: String? = null,
     val description: String = "",
-    val distance: String = "2.4 km away",
+    val distance: String = "",
+    val latitude: Double? = null,
+    val longitude: Double? = null,
+    val allowedRadiusMeters: Double = 150.0,
+    val locationVerified: Boolean? = null,
+    val distanceFromWorkMeters: Double? = null,
     val checklist: List<ChecklistItem> = emptyList(),
     val activityLog: List<ActivityEvent> = emptyList(),
     val photos: List<WorkPhoto> = emptyList(),
@@ -88,8 +110,17 @@ data class Work(
     val supervisorApprovalTime: String? = null,
     val supervisorRejectionReason: String? = null,
     val submittedForReviewAt: String? = null,
-    val completedAt: String? = null
+    val completedAt: String? = null,
+    val readyForCompletion: Boolean = false,
+    // Backend IDs for API calls
+    val backendId: Long? = null,
+    val serviceBoyId: Long? = null,
+    val pocId: Long? = null,
+    val supervisorId: Long? = null
 ) {
+    val isReadyForCompletion: Boolean
+        get() = readyForCompletion || (pocApproved == true && supervisorApproved == true && status != WorkStatus.COMPLETED)
+
     val pocApprovalState: ApprovalState
         get() = when (pocApproved) {
             true -> ApprovalState.APPROVED
@@ -111,7 +142,5 @@ data class AppNotification(
     val message: String,
     val timestamp: String,
     val isRead: Boolean = false,
-    val relatedWorkId: String? = "W001"
+    val relatedWorkId: String? = null
 )
-
-

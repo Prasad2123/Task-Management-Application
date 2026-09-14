@@ -18,15 +18,28 @@ android {
         vectorDrawables {
             useSupportLibrary = true
         }
+
+        // Authoritative online Supabase backend
+        buildConfigField("String", "SUPABASE_URL", "\"https://ajgkqjemiqsyqirainok.supabase.co/\"")
+        buildConfigField("String", "SUPABASE_KEY", "\"sb_publishable_TZmXiU28oRtMd8R93WKisA_RE4tPkyb\"")
+        buildConfigField("String", "BASE_URL", "\"https://ajgkqjemiqsyqirainok.supabase.co/\"")
     }
 
     buildTypes {
+        debug {
+            buildConfigField("String", "SUPABASE_URL", "\"https://ajgkqjemiqsyqirainok.supabase.co/\"")
+            buildConfigField("String", "SUPABASE_KEY", "\"sb_publishable_TZmXiU28oRtMd8R93WKisA_RE4tPkyb\"")
+            buildConfigField("String", "BASE_URL", "\"https://ajgkqjemiqsyqirainok.supabase.co/\"")
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            buildConfigField("String", "SUPABASE_URL", "\"https://ajgkqjemiqsyqirainok.supabase.co/\"")
+            buildConfigField("String", "SUPABASE_KEY", "\"sb_publishable_TZmXiU28oRtMd8R93WKisA_RE4tPkyb\"")
+            buildConfigField("String", "BASE_URL", "\"https://ajgkqjemiqsyqirainok.supabase.co/\"")
         }
     }
 
@@ -37,6 +50,13 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
+    }
+
+    testOptions {
+        unitTests {
+            isReturnDefaultValues = true
+        }
     }
 
     packaging {
@@ -71,12 +91,35 @@ dependencies {
     implementation(libs.appcompat)
     implementation(libs.material)
 
+    // Network — Retrofit + OkHttp
+    implementation(libs.retrofit.core)
+    implementation(libs.retrofit.converter.moshi)
+    implementation(libs.okhttp.core)
+    implementation(libs.okhttp.logging)
+
+    // JSON — Moshi
+    implementation(libs.moshi.kotlin)
+
+    // Coroutines
+    implementation(libs.coroutines.android)
+
+    // DataStore for secure token storage
+    implementation(libs.datastore.preferences)
+
+    // Coil for image loading
+    implementation(libs.coil.compose)
+
+    // Location
+    implementation(libs.play.services.location)
+
     // Debug
     debugImplementation(libs.compose.ui.tooling)
     debugImplementation(libs.compose.ui.test.manifest)
 
     // Tests
     testImplementation(libs.junit)
+    testImplementation(libs.coroutines.test)
+    testImplementation(libs.mockwebserver)
     androidTestImplementation(libs.ext.junit)
     androidTestImplementation(libs.espresso.core)
     androidTestImplementation(platform(libs.compose.bom))

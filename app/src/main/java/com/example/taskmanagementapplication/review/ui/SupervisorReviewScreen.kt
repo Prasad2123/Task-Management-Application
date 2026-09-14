@@ -50,6 +50,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -102,6 +103,13 @@ fun SupervisorReviewScreen(
     val totalCount = workViewModel.getTotalCount(work)
     val completedCount = workViewModel.getTotalCompletedCount(work)
     val photos = work.photos
+
+    LaunchedEffect(work.backendId) {
+        work.backendId?.let {
+            workViewModel.loadPhotos(it)
+            workViewModel.loadApprovals(it)
+        }
+    }
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },

@@ -120,6 +120,10 @@ object MockWorkRepository {
         notes = "Please carry the standard pest control kit. Access through Gate B.",
         description = "Perform scheduled monthly inspection, treatment and preventive maintenance activities at the assigned location. Ensure all safety protocols are followed.",
         distance = "2.4 km away",
+        latitude = 19.1136,
+        longitude = 72.8697,
+        allowedRadiusMeters = 150.0,
+        backendId = 1L,
         checklist = defaultChecklist,
         activityLog = listOf(
             ActivityEvent("A1", "Work session started", "10:30 AM"),

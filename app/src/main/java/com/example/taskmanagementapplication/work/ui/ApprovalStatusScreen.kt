@@ -41,6 +41,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -70,8 +71,13 @@ fun ApprovalStatusScreen(
     workViewModel: WorkViewModel
 ) {
     val work by workViewModel.work.collectAsStateWithLifecycle()
-    val isApproved = work.status == WorkStatus.APPROVED || work.status == WorkStatus.COMPLETED
-    val isRejected = work.status == WorkStatus.REJECTED
+    val isReadyForCompletion = work.readyForCompletion || (work.pocApproved == true && work.supervisorApproved == true)
+    val isApproved = work.status == WorkStatus.APPROVED || work.status == WorkStatus.COMPLETED || isReadyForCompletion
+    val isRejected = work.status == WorkStatus.REJECTED || (work.pocApproved == false || work.supervisorApproved == false)
+
+    LaunchedEffect(work.backendId) {
+        work.backendId?.let { workViewModel.loadApprovals(it) }
+    }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -144,6 +150,7 @@ fun ApprovalStatusScreen(
 
                     Text(
                         text = when {
+                            isReadyForCompletion -> "READY FOR COMPLETION"
                             isApproved -> "WORK APPROVED"
                             isRejected -> "CHANGES REQUIRED"
                             else -> "UNDER REVIEW"
@@ -162,6 +169,7 @@ fun ApprovalStatusScreen(
 
                     Text(
                         text = when {
+                            isReadyForCompletion -> "All approvals obtained! You are authorized to finalize work and depart site."
                             isApproved -> "Your work has been reviewed and approved by POC and Supervisor."
                             isRejected -> "Reviewers have requested revisions. Inspect feedback below and update work."
                             work.pocApproved == true -> "Approved by POC. Awaiting final Site Supervisor review."

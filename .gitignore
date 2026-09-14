@@ -14,3 +14,7 @@
 .cxx
 local.properties
 .kotlin/
+target/
+backend/target/
+backend/storage/
+*.log
