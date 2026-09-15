@@ -58,6 +58,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.example.taskmanagementapplication.core.model.PhotoUploadStatus
 import com.example.taskmanagementapplication.core.model.WorkPhoto
+import com.example.taskmanagementapplication.core.util.DateTimeUtils
 import com.example.taskmanagementapplication.core.theme.ErrorRed
 import com.example.taskmanagementapplication.core.theme.PrimaryLight
 import com.example.taskmanagementapplication.core.ui.PhotoStatusBadge
@@ -110,7 +111,7 @@ fun PhotoViewerDialog(
                                 color = Color.White
                             )
                             Text(
-                                text = "Uploaded ${currentPhoto.uploadedAt}",
+                                text = "Uploaded ${DateTimeUtils.formatToIndiaTime(currentPhoto.uploadedAt)}",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = Color.White.copy(alpha = 0.7f),
                                 fontSize = 12.sp

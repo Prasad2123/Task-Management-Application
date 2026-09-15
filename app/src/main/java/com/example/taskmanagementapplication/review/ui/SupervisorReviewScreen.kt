@@ -82,6 +82,7 @@ import com.example.taskmanagementapplication.core.ui.PhotoThumbnailView
 import com.example.taskmanagementapplication.core.ui.SectionHeader
 import com.example.taskmanagementapplication.core.ui.SwipeActionButton
 import com.example.taskmanagementapplication.core.ui.TimelineItem
+import com.example.taskmanagementapplication.core.util.DateTimeUtils
 import com.example.taskmanagementapplication.work.ui.PhotoViewerDialog
 import com.example.taskmanagementapplication.work.viewmodel.WorkViewModel
 import kotlinx.coroutines.launch
@@ -233,7 +234,7 @@ fun SupervisorReviewScreen(
                                 fontWeight = FontWeight.SemiBold
                             )
                             Text(
-                                text = work.supervisorApprovalTime ?: "Recently",
+                                text = DateTimeUtils.formatToIndiaTime(work.supervisorApprovalTime),
                                 style = MaterialTheme.typography.labelSmall,
                                 color = StatusCompleted,
                                 fontWeight = FontWeight.Bold
@@ -274,7 +275,7 @@ fun SupervisorReviewScreen(
                                 color = StatusCompleted
                             )
                             Text(
-                                text = "Approved by POC (${work.pocName}) at ${work.pocApprovalTime ?: "Recorded on site"}. Ready for final Supervisor sign-off.",
+                                text = "Approved by POC (${work.pocName}) at ${DateTimeUtils.formatToIndiaTime(work.pocApprovalTime)}. Ready for final Supervisor sign-off.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -299,7 +300,7 @@ fun SupervisorReviewScreen(
                         name = work.pocName,
                         isApproved = work.pocApproved == true,
                         isRejected = work.pocApproved == false,
-                        time = work.pocApprovalTime ?: "Pending POC Review",
+                        time = work.pocApprovalTime?.let { DateTimeUtils.formatToIndiaTime(it) } ?: "Pending POC Review",
                         isLast = false
                     )
 
@@ -309,7 +310,7 @@ fun SupervisorReviewScreen(
                         name = work.supervisorName,
                         isApproved = work.supervisorApproved == true,
                         isRejected = work.supervisorApproved == false,
-                        time = work.supervisorApprovalTime ?: if (work.pocApproved == true) "Awaiting Your Final Review" else "Locked Until POC Approval",
+                        time = work.supervisorApprovalTime?.let { DateTimeUtils.formatToIndiaTime(it) } ?: if (work.pocApproved == true) "Awaiting Your Final Review" else "Locked Until POC Approval",
                         isLast = false
                     )
 
@@ -319,7 +320,7 @@ fun SupervisorReviewScreen(
                         name = "Service Boy (${work.serviceBoyName})",
                         isApproved = work.status == WorkStatus.COMPLETED,
                         isRejected = false,
-                        time = if (work.status == WorkStatus.COMPLETED) work.completedAt ?: "Completed" else "Ready after Supervisor Approval",
+                        time = if (work.status == WorkStatus.COMPLETED) DateTimeUtils.formatToIndiaTime(work.completedAt) else "Ready after Supervisor Approval",
                         isLast = true
                     )
                 }
@@ -445,34 +446,58 @@ fun SupervisorReviewScreen(
 
                     Spacer(modifier = Modifier.height(10.dp))
 
+                    // ── FIELD TIMESTAMPS & DURATION (NON-OVERLAPPING WEIGHTED LAYOUT) ──
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
-                        Column {
+                        Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "Start Timestamp",
+                                text = "Start Time",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Text(
-                                text = work.startTime ?: "Recorded on site",
+                                text = DateTimeUtils.formatToIndiaTime(work.startTime),
                                 style = MaterialTheme.typography.bodySmall,
-                                fontWeight = FontWeight.Medium
+                                fontWeight = FontWeight.SemiBold
                             )
                         }
-                        Column(horizontalAlignment = Alignment.End) {
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            horizontalAlignment = Alignment.End
+                        ) {
                             Text(
-                                text = "Field Completion Time",
+                                text = "Field Completion",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Text(
-                                text = work.submittedForReviewAt ?: work.completedAt ?: "Upon review request",
+                                text = DateTimeUtils.formatToIndiaTime(work.submittedForReviewAt ?: work.completedAt),
                                 style = MaterialTheme.typography.bodySmall,
-                                fontWeight = FontWeight.Medium
+                                fontWeight = FontWeight.SemiBold
                             )
                         }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Work Duration",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = DateTimeUtils.formatFieldDuration(work.startTime, work.submittedForReviewAt ?: work.completedAt),
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = PrimaryLight
+                        )
                     }
 
                     Spacer(modifier = Modifier.height(10.dp))
@@ -1105,7 +1130,7 @@ private fun SupervisorAssignedChecklistRow(
 ) {
     val taskLabel = item.taskLabel ?: item.title
     val performer = item.completedByName ?: performerName ?: "Service Boy"
-    val timestamp = item.completedAt ?: "Recorded on site"
+    val timestamp = DateTimeUtils.formatToIndiaTime(item.completedAt)
 
     Row(
         modifier = Modifier
@@ -1167,7 +1192,7 @@ private fun SupervisorAdditionalWorkRow(
 ) {
     val taskLabel = item.taskLabel ?: item.title
     val performer = item.completedByName ?: performerName ?: "Service Boy"
-    val addedAt = item.createdAt ?: item.completedAt ?: "Recorded during work"
+    val addedAt = DateTimeUtils.formatToIndiaTime(item.createdAt ?: item.completedAt)
 
     Row(
         modifier = Modifier

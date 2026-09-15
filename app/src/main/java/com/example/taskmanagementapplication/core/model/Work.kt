@@ -73,7 +73,8 @@ data class WorkPhoto(
     val gradientSeed: Int = 0,
     val localUri: String? = null,
     val remoteUrl: String? = null,
-    val backendId: Long? = null
+    val backendId: Long? = null,
+    val storageReference: String? = null
 )
 
 enum class ApprovalState {

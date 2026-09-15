@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.taskmanagementapplication.core.theme.PrimaryLight
 import com.example.taskmanagementapplication.core.theme.StatusCompleted
+import com.example.taskmanagementapplication.core.util.DateTimeUtils
 import com.example.taskmanagementapplication.work.viewmodel.ReportUiState
 import com.example.taskmanagementapplication.work.viewmodel.WorkViewModel
 
@@ -284,9 +285,17 @@ fun WorkReportScreen(
                                 )
                                 HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
 
-                                val formattedSize = if (report.fileSize != null && report.fileSize > 0) {
-                                    "%.1f KB".format(report.fileSize / 1024.0)
-                                } else "Available"
+                                val rawBytes = if (report.fileSize != null && report.fileSize > 0) {
+                                    report.fileSize
+                                } else if (localFile != null && localFile.exists()) {
+                                    localFile.length()
+                                } else 0L
+
+                                val formattedSize = when {
+                                    rawBytes >= 1024 * 1024 -> "%.2f MB".format(rawBytes / (1024.0 * 1024.0))
+                                    rawBytes > 0 -> "%.1f KB".format(rawBytes / 1024.0)
+                                    else -> "Calculating..."
+                                }
 
                                 ReportDetailRow(
                                     icon = Icons.Default.Storage,
@@ -305,7 +314,7 @@ fun WorkReportScreen(
                                 ReportDetailRow(
                                     icon = Icons.Default.EventAvailable,
                                     label = "Completed At",
-                                    value = report.completedAt ?: "Recorded"
+                                    value = DateTimeUtils.formatToIndiaTime(report.completedAt ?: work.completedAt)
                                 )
                             }
                         }

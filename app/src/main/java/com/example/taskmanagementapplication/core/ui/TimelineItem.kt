@@ -25,6 +25,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.taskmanagementapplication.core.theme.PrimaryLight
 import com.example.taskmanagementapplication.core.theme.StatusCompleted
+import com.example.taskmanagementapplication.core.util.DateTimeUtils
 
 @Composable
 fun TimelineItem(
@@ -34,6 +35,8 @@ fun TimelineItem(
     isLast: Boolean = false,
     isDone: Boolean = true
 ) {
+    val displayTimestamp = DateTimeUtils.formatToIndiaTime(timestamp)
+
     Row(
         modifier = modifier.fillMaxWidth(),
         verticalAlignment = Alignment.Top
@@ -74,7 +77,7 @@ fun TimelineItem(
                 color = MaterialTheme.colorScheme.onSurface
             )
             Text(
-                text = timestamp,
+                text = displayTimestamp,
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -82,3 +85,4 @@ fun TimelineItem(
         }
     }
 }
+

@@ -1,11 +1,14 @@
 package com.example.taskmanagementapplication.data.repository
 
+import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.pdf.PdfDocument
+import com.example.taskmanagementapplication.data.local.LocalPhotoManager
 import com.example.taskmanagementapplication.work.report.PdfReportGenerator
+import java.io.File
 import com.example.taskmanagementapplication.BuildConfig
 import com.example.taskmanagementapplication.core.model.*
 import com.example.taskmanagementapplication.data.dto.*
@@ -34,9 +37,10 @@ import java.time.Instant
 class WorkRepository(
     private val apiService: ApiService,
     private val tokenManager: TokenManager? = null,
-    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val context: Context? = null
 ) {
-    constructor(apiService: ApiService, ioDispatcher: CoroutineDispatcher) : this(apiService, null, ioDispatcher)
+    constructor(apiService: ApiService, ioDispatcher: CoroutineDispatcher) : this(apiService, null, ioDispatcher, null)
 
     // ====================================================================
     // WORKS & WORKFLOW RPCs
@@ -519,47 +523,110 @@ class WorkRepository(
     }
 
     suspend fun downloadWorkReport(workId: Long): NetworkResult<ResponseBody> = safeCall {
-        // 1. Try downloading existing PDF from Supabase Storage bucket 'work-reports'
+        // Try downloading existing report from storage first
         try {
-            val downloadResp = apiService.downloadReportFromStorage("WorkReport_${workId}.pdf")
-            if (downloadResp.isSuccessful && downloadResp.body() != null) {
-                val bytes = downloadResp.body()!!.bytes()
-                if (bytes.isNotEmpty()) {
-                    return@safeCall NetworkResult.Success(
-                        bytes.toResponseBody("application/pdf".toMediaTypeOrNull())
-                    )
-                }
+            val response = apiService.downloadReportFromStorage("WorkReport_${workId}.pdf")
+            if (response.isSuccessful && response.body() != null) {
+                return@safeCall NetworkResult.Success(response.body()!!)
             }
-        } catch (e: Exception) {
-            // Storage object not present yet, will generate below
+        } catch (_: Exception) {}
+
+        // 1. Fetch authoritative Work entity for PDF data
+        val workResult = getWork(workId)
+        var work = if (workResult is NetworkResult.Success) workResult.data else null
+
+        // Populate checklist items
+        val clResult = getChecklist(workId)
+        if (clResult is NetworkResult.Success && work != null) {
+            work = work.copy(checklist = clResult.data)
         }
 
-        // 2. Fetch authoritative Work entity for PDF data
-        val workResult = getWork(workId)
-        val work = if (workResult is NetworkResult.Success) workResult.data else null
+        // Populate photo records from Supabase
+        val photosResult = getPhotos(workId)
+        val remotePhotos = if (photosResult is NetworkResult.Success) photosResult.data else emptyList()
+        if (work != null) {
+            work = work.copy(photos = remotePhotos)
+        }
 
-        // 3. Authoritatively generate genuine PDF document via PdfReportGenerator
+        // 2. Authoritatively resolve photo Bitmaps (Local App-Private Storage FIRST, Supabase Storage Fallback)
         val photoBitmaps = mutableListOf<Pair<WorkPhoto, Bitmap>>()
-        if (work != null && work.photos.isNotEmpty()) {
-            for (photo in work.photos) {
+        val photosToProcess = work?.photos ?: emptyList()
+
+        for (photo in photosToProcess) {
+            var bitmap: Bitmap? = null
+
+            // A. Check Local App-Private Storage first
+            if (context != null) {
+                val localFile = LocalPhotoManager.getLocalPhotoFile(
+                    context = context,
+                    workId = workId,
+                    photoId = photo.id,
+                    backendId = photo.backendId,
+                    storageReference = photo.storageReference,
+                    localUri = photo.localUri
+                )
+                if (localFile != null && localFile.exists() && localFile.length() > 0) {
+                    try {
+                        bitmap = BitmapFactory.decodeFile(localFile.absolutePath)
+                    } catch (_: Exception) {}
+                }
+            }
+
+            // B. Check direct localUri
+            if (bitmap == null && !photo.localUri.isNullOrBlank()) {
                 try {
-                    val url = photo.remoteUrl
-                    if (!url.isNullOrBlank()) {
-                        val resp = apiService.streamBinaryDirectly(url)
-                        if (resp.isSuccessful) {
-                            resp.body()?.byteStream()?.use { stream ->
-                                val bmp = BitmapFactory.decodeStream(stream)
-                                if (bmp != null) {
-                                    photoBitmaps.add(Pair(photo, bmp))
-                                }
-                            }
+                    val rawPath = if (photo.localUri.startsWith("file://")) {
+                        android.net.Uri.parse(photo.localUri).path ?: photo.localUri
+                    } else photo.localUri
+                    val f = File(rawPath)
+                    if (f.exists() && f.length() > 0) {
+                        bitmap = BitmapFactory.decodeFile(f.absolutePath)
+                    }
+                } catch (_: Exception) {}
+            }
+
+            // C. Fallback: Download bytes from Supabase Storage using signed / remote URL
+            if (bitmap == null && !photo.remoteUrl.isNullOrBlank()) {
+                try {
+                    val resp = apiService.streamBinaryDirectly(photo.remoteUrl)
+                    if (resp.isSuccessful) {
+                        resp.body()?.byteStream()?.use { stream ->
+                            bitmap = BitmapFactory.decodeStream(stream)
                         }
                     }
-                } catch (e: Exception) {
-                    // Non-critical if photo download fails
-                }
+                } catch (_: Exception) {}
+            }
+
+            val resolvedBitmap = bitmap
+            if (resolvedBitmap != null) {
+                photoBitmaps.add(Pair(photo, resolvedBitmap))
             }
         }
+
+        // D. If remote returned 0 photos, scan app-private storage for any captured photos for this work
+        if (photoBitmaps.isEmpty() && context != null) {
+            val localFiles = LocalPhotoManager.getAllLocalPhotos(context, workId)
+            for (file in localFiles) {
+                try {
+                    val bmp = BitmapFactory.decodeFile(file.absolutePath)
+                    if (bmp != null) {
+                        val fallbackPhoto = WorkPhoto(
+                            id = file.nameWithoutExtension,
+                            title = "Site Inspection",
+                            category = PhotoCategory.SITE_INSPECTION,
+                            uploadedAt = com.example.taskmanagementapplication.core.util.DateTimeUtils.currentIndiaFormatted(),
+                            localUri = file.absolutePath
+                        )
+                        photoBitmaps.add(Pair(fallbackPhoto, bmp))
+                    }
+                } catch (_: Exception) {}
+            }
+            if (photoBitmaps.isNotEmpty() && work != null) {
+                work = work.copy(photos = photoBitmaps.map { it.first })
+            }
+        }
+
+        // 3. Authoritatively generate genuine multi-page PDF document via PdfReportGenerator
         val pdfBytes = PdfReportGenerator.generate(workId, work, photoBitmaps)
 
         // 4. Upload generated PDF to Supabase Storage 'work-reports' bucket
@@ -744,26 +811,20 @@ class WorkRepository(
             id = this.id.toString(),
             title = this.title,
             category = categoryEnum,
-            uploadedAt = this.createdAt ?: "Just now",
+            uploadedAt = com.example.taskmanagementapplication.core.util.DateTimeUtils.formatToIndiaTime(this.createdAt),
             uploadStatus = statusEnum,
             caption = this.caption,
             uploadProgress = 1.0f,
             isSelected = false,
             gradientSeed = (this.id % 5).toInt() + 1,
             remoteUrl = fullPhotoUrl,
-            backendId = this.id
+            backendId = this.id,
+            storageReference = this.storageReference
         )
     }
 
     private fun NotificationDto.toDomainModel(): AppNotification {
-        val timeDisplay = try {
-            val instant = Instant.parse(this.createdAt)
-            val formatter = java.time.format.DateTimeFormatter.ofPattern("hh:mm a", java.util.Locale.getDefault())
-                .withZone(java.time.ZoneId.systemDefault())
-            formatter.format(instant)
-        } catch (e: Exception) {
-            "Recently"
-        }
+        val timeDisplay = com.example.taskmanagementapplication.core.util.DateTimeUtils.formatToIndiaTime(this.createdAt)
         return AppNotification(
             id = this.id.toString(),
             title = this.title,

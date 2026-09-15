@@ -41,6 +41,7 @@ import com.example.taskmanagementapplication.core.theme.StatusInProgress
 import com.example.taskmanagementapplication.core.theme.StatusNotStarted
 import com.example.taskmanagementapplication.core.theme.StatusRejected
 import com.example.taskmanagementapplication.core.theme.StatusWaitingReview
+import com.example.taskmanagementapplication.core.util.DateTimeUtils
 
 @Composable
 fun WorkCard(
@@ -95,7 +96,7 @@ fun WorkCard(
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
-                            text = work.scheduledDate,
+                            text = DateTimeUtils.formatToIndiaDate(work.scheduledDate),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )

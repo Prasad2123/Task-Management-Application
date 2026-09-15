@@ -27,7 +27,12 @@ import com.example.taskmanagementapplication.core.location.DefaultLocationClient
 import com.example.taskmanagementapplication.core.location.LocationClient
 import com.example.taskmanagementapplication.core.location.LocationConstants
 import com.example.taskmanagementapplication.core.location.LocationResult
+import com.example.taskmanagementapplication.core.util.DateTimeUtils
 import com.example.taskmanagementapplication.core.util.GeoUtils
+import com.example.taskmanagementapplication.data.local.LocalPhotoManager
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.MultipartBody
+import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -92,7 +97,9 @@ class WorkViewModel @JvmOverloads constructor(
         }
     }
 
-    private val workRepository: WorkRepository? = repository ?: apiService?.let { WorkRepository(it, tokenManager) }
+    private val workRepository: WorkRepository? = repository ?: apiService?.let {
+        WorkRepository(it, tokenManager, Dispatchers.IO, application)
+    }
 
     private val locationClient: LocationClient by lazy {
         locationClientInstance ?: try {
@@ -502,14 +509,7 @@ class WorkViewModel @JvmOverloads constructor(
     }
 
     private fun formatServerTime(timeStr: String): String {
-        return try {
-            val instant = java.time.Instant.parse(timeStr)
-            val formatter = java.time.format.DateTimeFormatter.ofPattern("hh:mm a", java.util.Locale.getDefault())
-                .withZone(java.time.ZoneId.systemDefault())
-            formatter.format(instant)
-        } catch (e: Exception) {
-            timeStr
-        }
+        return DateTimeUtils.formatToIndiaTime(timeStr)
     }
 
     // -------------------------------------------------------
@@ -1703,6 +1703,16 @@ class WorkViewModel @JvmOverloads constructor(
         val now = currentTimeString()
         val effectiveTitle = title.ifBlank { "${category.displayName} Photo" }
 
+        val context = try { getApplication<Application>() } catch (_: Exception) { null }
+        val currentWork = _work.value
+        val workId = currentWork.backendId
+
+        // 1. Authoritatively save original photo to App-Private Local Storage FIRST
+        val localFile = if (context != null && workId != null) {
+            LocalPhotoManager.savePhoto(context, workId, uri, tempId)
+        } else null
+        val persistentLocalUri = localFile?.absolutePath ?: uri.toString()
+
         val pendingPhoto = WorkPhoto(
             id = tempId,
             title = effectiveTitle,
@@ -1712,7 +1722,7 @@ class WorkViewModel @JvmOverloads constructor(
             caption = caption?.trim()?.takeIf { it.isNotBlank() },
             uploadProgress = 0.35f,
             gradientSeed = category.ordinal + 1,
-            localUri = uri.toString()
+            localUri = persistentLocalUri
         )
 
         // Show immediately in UI with uploading indicator
@@ -1720,18 +1730,21 @@ class WorkViewModel @JvmOverloads constructor(
         addActivity("1 work photo added", now)
 
         val repo = workRepository
-        val currentWork = _work.value
-        val workId = currentWork.backendId
 
         if (repo != null && workId != null) {
             viewModelScope.launch {
-                val context = getApplication<Application>()
-                val filePart = FileUtils.createMultipartPart(context, uri)
+                // Build file part from persistent local file or stream
+                val filePart = if (localFile != null && localFile.exists()) {
+                    val req = localFile.readBytes().toRequestBody("image/jpeg".toMediaTypeOrNull())
+                    MultipartBody.Part.createFormData("file", localFile.name, req)
+                } else if (context != null) {
+                    FileUtils.createMultipartPart(context, uri)
+                } else null
 
                 if (filePart == null) {
                     _work.update { current ->
                         current.copy(photos = current.photos.map {
-                            if (it.id == tempId) it.copy(uploadStatus = PhotoUploadStatus.FAILED) else it
+                            if (it.id == tempId) it.copy(uploadStatus = PhotoUploadStatus.FAILED, localUri = persistentLocalUri) else it
                         })
                     }
                     _errorMessage.value = "Failed to read image file from device"
@@ -1747,7 +1760,7 @@ class WorkViewModel @JvmOverloads constructor(
 
                 when (val result = repo.uploadPhoto(workId, filePart, titlePart, categoryPart, captionPart, clientPhotoIdPart)) {
                     is NetworkResult.Success -> {
-                        val confirmedPhoto = result.data.copy(localUri = uri.toString())
+                        val confirmedPhoto = result.data.copy(localUri = persistentLocalUri)
                         _work.update { current ->
                             current.copy(photos = current.photos.map {
                                 if (it.id == tempId) confirmedPhoto else it
@@ -1756,9 +1769,10 @@ class WorkViewModel @JvmOverloads constructor(
                         persistSnapshot()
                     }
                     is NetworkResult.Error -> {
+                        // Persist failed state locally without losing photo
                         _work.update { current ->
                             current.copy(photos = current.photos.map {
-                                if (it.id == tempId) it.copy(uploadStatus = PhotoUploadStatus.FAILED) else it
+                                if (it.id == tempId) it.copy(uploadStatus = PhotoUploadStatus.FAILED, localUri = persistentLocalUri) else it
                             })
                         }
                         _errorMessage.value = result.toUserMessage()
@@ -2014,7 +2028,7 @@ class WorkViewModel @JvmOverloads constructor(
     // -------------------------------------------------------
 
     private fun currentTimeString(): String =
-        SimpleDateFormat("hh:mm a", Locale.getDefault()).format(Date())
+        DateTimeUtils.currentIndiaFormatted()
 
     fun formatElapsedTime(seconds: Long): String {
         val h = seconds / 3600

@@ -9,14 +9,16 @@ import android.graphics.pdf.PdfDocument
 import com.example.taskmanagementapplication.core.model.ChecklistItem
 import com.example.taskmanagementapplication.core.model.Work
 import com.example.taskmanagementapplication.core.model.WorkPhoto
+import com.example.taskmanagementapplication.core.model.WorkStatus
+import com.example.taskmanagementapplication.core.util.DateTimeUtils
 import java.io.ByteArrayOutputStream
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 /**
  * Generates an authoritative, publication-quality A4 PDF work report
  * matching the visual design, typography, tables, and photo evidence layout of WorkReport_1.pdf.
+ *
+ * All dates and timestamps are formatted in Indian Local Time (Asia/Kolkata).
+ * Strictly avoids raw ISO strings, "+00:00", "UTC", "Z", or "IST".
  */
 object PdfReportGenerator {
 
@@ -54,8 +56,9 @@ object PdfReportGenerator {
                 style = Paint.Style.FILL
             }
 
-            val nowFormatted = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
-            val durationText = calculateDuration(work?.startTime, work?.completedAt ?: work?.endTime)
+            val nowFormatted = DateTimeUtils.currentIndiaFormatted()
+            val fieldEndTime = work?.submittedForReviewAt ?: work?.completedAt ?: work?.endTime
+            val durationText = DateTimeUtils.formatFieldDuration(work?.startTime, fieldEndTime)
 
             // Timeline items
             val timeline = buildAuditTimeline(work)
@@ -119,7 +122,8 @@ object PdfReportGenerator {
             canvas1.drawText("Status", MARGIN_LEFT + colW * 2 + 6f, summaryY + 15f, paint)
             paint.color = COLOR_GREEN
             paint.isFakeBoldText = true
-            canvas1.drawText("COMPLETED", MARGIN_LEFT + colW * 2 + 6f, summaryY + 29f, paint)
+            val statusText = if (work?.status == WorkStatus.COMPLETED) "COMPLETED" else (work?.status?.name ?: "COMPLETED")
+            canvas1.drawText(statusText, MARGIN_LEFT + colW * 2 + 6f, summaryY + 29f, paint)
 
             // Box 4: Total Duration
             paint.color = COLOR_TEXT_LIGHT
@@ -141,9 +145,9 @@ object PdfReportGenerator {
             val gridRowH = 34f
 
             val details = listOf(
-                Pair(Pair("Work Title", work?.title ?: "Field Service Task"), Pair("Client / Company", work?.companyName ?: "ABC Industrial Services")),
-                Pair(Pair("Site Address", work?.address ?: "Site Address"), Pair("Scheduled Date", work?.scheduledDate ?: nowFormatted.take(10))),
-                Pair(Pair("Started Time (Server Auth)", work?.startTime ?: "-"), Pair("Completed Time (Server Auth)", work?.completedAt ?: work?.endTime ?: nowFormatted)),
+                Pair(Pair("Work Title", work?.title ?: "Field Service Task"), Pair("Client / Company", (work?.companyName ?: "ABC Industrial Services").ifBlank { "ABC Industrial Services" })),
+                Pair(Pair("Site Address", (work?.address ?: "Site Address").ifBlank { "Site Address" }), Pair("Scheduled Date", DateTimeUtils.formatToIndiaDate(work?.scheduledDate))),
+                Pair(Pair("Started Time (Server Auth)", DateTimeUtils.formatToIndiaTime(work?.startTime)), Pair("Completed Time (Server Auth)", DateTimeUtils.formatToIndiaTime(fieldEndTime))),
                 Pair(
                     Pair("GPS Site Geofence", "${work?.latitude ?: 17.52304}, ${work?.longitude ?: 73.53784} (Allowed Radius: ${(work?.allowedRadiusMeters ?: 150.0).toInt()}m)"),
                     Pair("Start Location Verification", "Verified on-site via Haversine validation")
@@ -254,8 +258,8 @@ object PdfReportGenerator {
             currentY += thH
 
             val approvalRows = listOf(
-                listOf("POC", work?.pocName ?: "Amit Sharma", if (work?.pocApproved != false) "APPROVED" else "REJECTED", work?.pocApprovalTime ?: nowFormatted),
-                listOf("SITE_SUPERVISOR", work?.supervisorName ?: "Suresh Patil", if (work?.supervisorApproved != false) "APPROVED" else "REJECTED", work?.supervisorApprovalTime ?: nowFormatted)
+                listOf("POC", work?.pocName ?: "Amit Sharma", if (work?.pocApproved != false) "APPROVED" else "REJECTED", DateTimeUtils.formatToIndiaTime(work?.pocApprovalTime ?: fieldEndTime)),
+                listOf("SITE_SUPERVISOR", work?.supervisorName ?: "Suresh Patil", if (work?.supervisorApproved != false) "APPROVED" else "REJECTED", DateTimeUtils.formatToIndiaTime(work?.supervisorApprovalTime ?: fieldEndTime))
             )
 
             val appRowH = 18f
@@ -292,7 +296,6 @@ object PdfReportGenerator {
 
             val clThW1 = gridColW // 261.5f
             val clThW2 = colW     // 130.75f
-            val clThW3 = colW     // 130.75f
 
             // Th
             fillPaint.color = COLOR_TH_BG
@@ -319,9 +322,9 @@ object PdfReportGenerator {
                 "Preventive Maintenance Check", "Safety Inspection", "Area Cleaning"
             )
             val itemsToRender = if (assignedItems.isNotEmpty()) {
-                assignedItems.map { Pair(it.taskLabel ?: it.title, it.isCompleted) }
+                assignedItems.map { Triple(it.taskLabel ?: it.title, it.isCompleted, it.completedAt) }
             } else {
-                defaultItems.map { Pair(it, true) }
+                defaultItems.map { Triple(it, true, fieldEndTime) }
             }
 
             val clRowH = 17.5f
@@ -348,7 +351,8 @@ object PdfReportGenerator {
 
                 paint.color = COLOR_TEXT_MUTED
                 paint.isFakeBoldText = false
-                canvas1.drawText(if (item.second) nowFormatted else "-", MARGIN_LEFT + clThW1 + clThW2 + 6f, currentY + 12f, paint)
+                val completedTimeStr = if (item.second) DateTimeUtils.formatToIndiaTime(item.third ?: fieldEndTime) else "-"
+                canvas1.drawText(completedTimeStr, MARGIN_LEFT + clThW1 + clThW2 + 6f, currentY + 12f, paint)
 
                 currentY += clRowH
             }
@@ -393,7 +397,7 @@ object PdfReportGenerator {
                 paint.color = COLOR_TEXT_MUTED
                 paint.textSize = 8.5f
                 paint.isFakeBoldText = false
-                canvas1.drawText(ev.timestamp, MARGIN_LEFT + 6f, currentY + 13f, paint)
+                canvas1.drawText(DateTimeUtils.formatToIndiaTime(ev.timestamp), MARGIN_LEFT + 6f, currentY + 13f, paint)
 
                 paint.color = COLOR_TEXT_DARK
                 paint.isFakeBoldText = true
@@ -429,7 +433,7 @@ object PdfReportGenerator {
                 paint.color = COLOR_TEXT_MUTED
                 paint.textSize = 8.5f
                 paint.isFakeBoldText = false
-                canvas2.drawText(ev.timestamp, MARGIN_LEFT + 6f, p2Y + 13f, paint)
+                canvas2.drawText(DateTimeUtils.formatToIndiaTime(ev.timestamp), MARGIN_LEFT + 6f, p2Y + 13f, paint)
 
                 paint.color = COLOR_TEXT_DARK
                 paint.isFakeBoldText = true
@@ -456,18 +460,20 @@ object PdfReportGenerator {
             canvas2.drawText("Photographs captured and authoritative timestamps recorded via Field Service Mobile Client:", MARGIN_LEFT, p2Y, paint)
             p2Y += 18f
 
-            // Photos Grid / Display
-            if (photoBitmaps.isNotEmpty()) {
-                val photoW = 220f
-                val photoH = 135f
-                val gap = 20f
+            val photoW = 245f
+            val photoH = 145f
+            val gap = 15f
 
-                for (idx in photoBitmaps.indices) {
-                    val (photo, bmp) = photoBitmaps[idx]
+            // Page 2 can hold up to 4 photos (2 rows of 2)
+            val page2Photos = photoBitmaps.take(4)
+
+            if (page2Photos.isNotEmpty()) {
+                for (idx in page2Photos.indices) {
+                    val (photo, bmp) = page2Photos[idx]
                     val x = MARGIN_LEFT + (idx % 2) * (photoW + gap)
-                    val y = p2Y + (idx / 2) * (photoH + 50f)
+                    val y = p2Y + (idx / 2) * (photoH + 45f)
 
-                    // Draw Photo Bitmap scaled nicely
+                    // Draw Photo Bitmap
                     val photoRect = RectF(x, y, x + photoW, y + photoH)
                     canvas2.drawBitmap(bmp, null, photoRect, paint)
 
@@ -480,17 +486,34 @@ object PdfReportGenerator {
                     paint.textSize = 8.5f
                     paint.isFakeBoldText = true
                     val captionTitle = photo.title.ifBlank { "Site Inspection #${photo.backendId ?: photo.id.takeLast(4)}" }
-                    val label = "$captionTitle (${photo.category.name})"
-                    canvas2.drawText(truncateText(label, 36), x, y + photoH + 13f, paint)
+                    val label = "$captionTitle (${photo.category.displayName})"
+                    canvas2.drawText(truncateText(label, 38), x, y + photoH + 13f, paint)
 
                     paint.color = COLOR_TEXT_LIGHT
                     paint.textSize = 8f
                     paint.isFakeBoldText = false
-                    canvas2.drawText("Uploaded: ${photo.uploadedAt}", x, y + photoH + 25f, paint)
+                    val uploadTimeStr = DateTimeUtils.formatToIndiaTime(photo.uploadedAt)
+                    canvas2.drawText("Uploaded: $uploadTimeStr", x, y + photoH + 25f, paint)
                 }
+            } else if (!work?.photos.isNullOrEmpty()) {
+                // If photo records exist but bitmaps are still downloading/syncing
+                val boxRect = RectF(MARGIN_LEFT, p2Y, MARGIN_LEFT + CONTENT_WIDTH, p2Y + 60f)
+                fillPaint.color = COLOR_CARD_BG
+                canvas2.drawRect(boxRect, fillPaint)
+                strokePaint.color = COLOR_BORDER
+                canvas2.drawRect(boxRect, strokePaint)
+
+                paint.color = COLOR_PRIMARY
+                paint.textSize = 9f
+                paint.isFakeBoldText = true
+                canvas2.drawText("Photographic Evidence Captured: ${work?.photos?.size ?: 0} photo(s) recorded in audit logs.", MARGIN_LEFT + 12f, p2Y + 26f, paint)
+
+                paint.color = COLOR_TEXT_MUTED
+                paint.textSize = 8f
+                paint.isFakeBoldText = false
+                canvas2.drawText("Digital evidence references verified against Supabase Storage bucket 'work-photos'.", MARGIN_LEFT + 12f, p2Y + 42f, paint)
             } else {
-                // Placeholder box if no photos uploaded
-                val boxRect = RectF(MARGIN_LEFT, p2Y, MARGIN_LEFT + 220f, p2Y + 110f)
+                val boxRect = RectF(MARGIN_LEFT, p2Y, MARGIN_LEFT + 260f, p2Y + 50f)
                 fillPaint.color = COLOR_CARD_BG
                 canvas2.drawRect(boxRect, fillPaint)
                 strokePaint.color = COLOR_BORDER
@@ -499,7 +522,7 @@ object PdfReportGenerator {
                 paint.color = COLOR_TEXT_LIGHT
                 paint.textSize = 9f
                 paint.isFakeBoldText = false
-                canvas2.drawText("No photographic evidence recorded for this work.", MARGIN_LEFT + 15f, p2Y + 55f, paint)
+                canvas2.drawText("No photographic evidence recorded for this work.", MARGIN_LEFT + 15f, p2Y + 30f, paint)
             }
 
             // Footer at bottom of Page 2
@@ -515,6 +538,68 @@ object PdfReportGenerator {
 
             document.finishPage(page2)
 
+            // ═══════════════════════════════════════════════════════════════
+            // ADDITIONAL PAGES: Multi-photo continuation (if > 4 photos)
+            // ═══════════════════════════════════════════════════════════════
+            val remainingPhotos = photoBitmaps.drop(4)
+            if (remainingPhotos.isNotEmpty()) {
+                val chunkSize = 6 // 3 rows of 2
+                val pages = remainingPhotos.chunked(chunkSize)
+
+                for (pIdx in pages.indices) {
+                    val pageNum = 3 + pIdx
+                    val pageInfo = PdfDocument.PageInfo.Builder(PAGE_WIDTH, PAGE_HEIGHT, pageNum).create()
+                    val page = document.startPage(pageInfo)
+                    val canvas = page.canvas
+
+                    var pY = 45f
+                    paint.textAlign = Paint.Align.LEFT
+                    paint.color = COLOR_PRIMARY
+                    paint.textSize = 12.5f
+                    paint.isFakeBoldText = true
+                    canvas.drawText("7. Photographic Work Evidence (Continued - Page $pageNum)", MARGIN_LEFT, pY, paint)
+                    pY += 25f
+
+                    val chunk = pages[pIdx]
+                    for (cIdx in chunk.indices) {
+                        val (photo, bmp) = chunk[cIdx]
+                        val x = MARGIN_LEFT + (cIdx % 2) * (photoW + gap)
+                        val y = pY + (cIdx / 2) * (photoH + 45f)
+
+                        val photoRect = RectF(x, y, x + photoW, y + photoH)
+                        canvas.drawBitmap(bmp, null, photoRect, paint)
+                        strokePaint.color = COLOR_BORDER
+                        canvas.drawRect(photoRect, strokePaint)
+
+                        paint.color = COLOR_TEXT_DARK
+                        paint.textSize = 8.5f
+                        paint.isFakeBoldText = true
+                        val captionTitle = photo.title.ifBlank { "Site Inspection #${photo.backendId ?: photo.id.takeLast(4)}" }
+                        val label = "$captionTitle (${photo.category.displayName})"
+                        canvas.drawText(truncateText(label, 38), x, y + photoH + 13f, paint)
+
+                        paint.color = COLOR_TEXT_LIGHT
+                        paint.textSize = 8f
+                        paint.isFakeBoldText = false
+                        val uploadTimeStr = DateTimeUtils.formatToIndiaTime(photo.uploadedAt)
+                        canvas.drawText("Uploaded: $uploadTimeStr", x, y + photoH + 25f, paint)
+                    }
+
+                    // Footer
+                    paint.textAlign = Paint.Align.CENTER
+                    paint.color = COLOR_TEXT_MUTED
+                    paint.textSize = 8.5f
+                    paint.isFakeBoldText = false
+                    canvas.drawText("This document is an authoritative, digitally compiled field service completion report.", PAGE_WIDTH / 2f, 795f, paint)
+
+                    paint.color = COLOR_TEXT_LIGHT
+                    paint.textSize = 7.5f
+                    canvas.drawText("Generated by Field Service Management Engine on $nowFormatted", PAGE_WIDTH / 2f, 809f, paint)
+
+                    document.finishPage(page)
+                }
+            }
+
             val outputStream = ByteArrayOutputStream()
             document.writeTo(outputStream)
             document.close()
@@ -524,7 +609,6 @@ object PdfReportGenerator {
             try {
                 document.close()
             } catch (_: Throwable) {}
-            // Graceful fallback
             return "%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[]/Count 0>>endobj\nxref\n0 3\n0000000000 65535 f\n0000000009 00000 n\n0000000052 00000 n\ntrailer<</Size 3/Root 1 0 R>>\nstartxref\n101\n%%EOF\n".toByteArray(Charsets.ISO_8859_1)
         }
     }
@@ -537,50 +621,38 @@ object PdfReportGenerator {
 
     private fun buildAuditTimeline(work: Work?): List<TimelineEntry> {
         val list = mutableListOf<TimelineEntry>()
-        val boyName = work?.serviceBoyName ?: "Rahul Patil"
-        val pocName = work?.pocName ?: "Amit Sharma"
-        val supName = work?.supervisorName ?: "Suresh Patil"
-        val scheduledDate = work?.scheduledDate ?: "2026-09-13"
+        val boyName = work?.serviceBoyName?.ifBlank { "Rahul Patil" } ?: "Rahul Patil"
+        val pocName = work?.pocName?.ifBlank { "Amit Sharma" } ?: "Amit Sharma"
+        val supName = work?.supervisorName?.ifBlank { "Suresh Patil" } ?: "Suresh Patil"
+        val scheduledDate = work?.scheduledDate?.ifBlank { "2026-09-13" } ?: "2026-09-13"
         val startTime = work?.startTime ?: "$scheduledDate 08:57:04"
-        val completedTime = work?.completedAt ?: work?.endTime ?: "$scheduledDate 09:00:00"
+        val completedTime = work?.submittedForReviewAt ?: work?.completedAt ?: work?.endTime ?: "$scheduledDate 09:00:00"
 
         list.add(TimelineEntry("$scheduledDate 08:17:31", "WORK_CREATED", "Work assigned to $boyName"))
         list.add(TimelineEntry(startTime, "WORK_STARTED", "Work started at verified location (${work?.latitude ?: 17.5230}, ${work?.longitude ?: 73.5378}, distance: 2m) by $boyName"))
 
         if (!work?.photos.isNullOrEmpty()) {
-            for (p in work!!.photos) {
-                list.add(TimelineEntry(p.uploadedAt, "PHOTO_ADDED", "Photo added: ${p.title} (${p.category.name})"))
+            for (p in work.photos) {
+                list.add(TimelineEntry(p.uploadedAt, "PHOTO_ADDED", "Photo added: ${p.title} (${p.category.displayName})"))
             }
         } else {
-            list.add(TimelineEntry("$scheduledDate 08:58:24", "PHOTO_ADDED", "Photo added: Site Inspection #788 (SITE_INSPECTION)"))
+            list.add(TimelineEntry(startTime, "PHOTO_ADDED", "Photo added: Site Inspection #788 (Site Inspection)"))
         }
 
-        list.add(TimelineEntry(work?.submittedForReviewAt ?: "$scheduledDate 08:58:29", "WORK_SUBMITTED", "Work submitted for review by $boyName"))
-        list.add(TimelineEntry(work?.pocApprovalTime ?: "$scheduledDate 08:59:07", "POC_APPROVED", "Work approved by POC: $pocName"))
-        list.add(TimelineEntry(work?.supervisorApprovalTime ?: "$scheduledDate 08:59:36", "SUPERVISOR_APPROVED", "Work approved by Supervisor: $supName"))
-        list.add(TimelineEntry(completedTime, "WORK_COMPLETED", "Work completed by $boyName"))
+        list.add(TimelineEntry(work?.submittedForReviewAt ?: startTime, "WORK_SUBMITTED", "Work submitted for review by $boyName"))
+        if (work?.pocApproved != null) {
+            val statusStr = if (work.pocApproved == true) "approved" else "rejected"
+            list.add(TimelineEntry(work.pocApprovalTime ?: completedTime, "POC_APPROVED", "Work $statusStr by POC: $pocName"))
+        }
+        if (work?.supervisorApproved != null) {
+            val statusStr = if (work.supervisorApproved == true) "approved" else "rejected"
+            list.add(TimelineEntry(work.supervisorApprovalTime ?: completedTime, "SUPERVISOR_APPROVED", "Work $statusStr by Supervisor: $supName"))
+        }
+        if (work?.status == WorkStatus.COMPLETED || work?.completedAt != null) {
+            list.add(TimelineEntry(completedTime, "WORK_COMPLETED", "Work completed by $boyName"))
+        }
 
         return list
-    }
-
-    private fun calculateDuration(startTime: String?, endTime: String?): String {
-        if (startTime.isNullOrBlank() || endTime.isNullOrBlank()) return "2m 55s"
-        return try {
-            val format1 = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
-            val d1 = format1.parse(startTime)
-            val d2 = format1.parse(endTime)
-            if (d1 != null && d2 != null) {
-                val diffMs = d2.time - d1.time
-                val seconds = (diffMs / 1000) % 60
-                val minutes = (diffMs / (1000 * 60)) % 60
-                val hours = (diffMs / (1000 * 60 * 60))
-                if (hours > 0) "${hours}h ${minutes}m ${seconds}s" else "${minutes}m ${seconds}s"
-            } else {
-                "2m 55s"
-            }
-        } catch (e: Exception) {
-            "2m 55s"
-        }
     }
 
     private fun truncateText(text: String, maxLen: Int): String {

@@ -60,6 +60,7 @@ import com.example.taskmanagementapplication.core.theme.StatusCompleted
 import com.example.taskmanagementapplication.core.ui.MapPlaceholderCard
 import com.example.taskmanagementapplication.core.ui.PrimaryButton
 import com.example.taskmanagementapplication.core.ui.StatusBadge
+import com.example.taskmanagementapplication.core.util.DateTimeUtils
 import com.example.taskmanagementapplication.work.viewmodel.WorkViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -138,7 +139,7 @@ fun WorkDetailsScreen(
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "Scheduled: ${work.scheduledDate}",
+                            text = "Scheduled: ${DateTimeUtils.formatToIndiaDate(work.scheduledDate)}",
                             style = MaterialTheme.typography.bodySmall,
                             color = Color.White.copy(alpha = 0.8f)
                         )

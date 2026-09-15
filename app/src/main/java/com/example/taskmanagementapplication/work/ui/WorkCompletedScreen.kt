@@ -52,6 +52,7 @@ import com.example.taskmanagementapplication.core.theme.PrimaryLight
 import com.example.taskmanagementapplication.core.theme.StatusCompleted
 import com.example.taskmanagementapplication.core.ui.SectionHeader
 import com.example.taskmanagementapplication.core.ui.TimelineItem
+import com.example.taskmanagementapplication.core.util.DateTimeUtils
 import com.example.taskmanagementapplication.work.viewmodel.WorkViewModel
 
 @Composable
@@ -144,10 +145,10 @@ fun WorkCompletedScreen(
                     StatRow("Location", work.companyName)
                     HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp))
 
-                    StatRow("Completed at", work.completedAt ?: "Recently")
+                    StatRow("Completed at", DateTimeUtils.formatToIndiaTime(work.completedAt))
                     HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp))
 
-                    StatRow("Total Duration", workViewModel.formatElapsedTime(elapsedSeconds))
+                    StatRow("Total Duration", DateTimeUtils.formatFieldDuration(work.startTime, work.completedAt).ifBlank { workViewModel.formatElapsedTime(elapsedSeconds) })
                     HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp))
 
                     StatRow("POC Review", "✓ Approved (${work.pocName})", isSuccess = true)

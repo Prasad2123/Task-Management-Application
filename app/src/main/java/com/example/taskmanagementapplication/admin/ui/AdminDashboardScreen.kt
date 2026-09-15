@@ -31,6 +31,7 @@ import com.example.taskmanagementapplication.core.model.Work
 import com.example.taskmanagementapplication.core.model.WorkStatus
 import com.example.taskmanagementapplication.core.theme.*
 import com.example.taskmanagementapplication.core.ui.AvatarPlaceholder
+import com.example.taskmanagementapplication.core.util.DateTimeUtils
 import com.example.taskmanagementapplication.core.util.MapUtils
 import com.example.taskmanagementapplication.data.dto.UserProfileDto
 import com.example.taskmanagementapplication.work.viewmodel.WorkViewModel
@@ -666,10 +667,10 @@ private fun AdminWorkCard(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                TimestampItem(label = "Date", value = work.scheduledDate.ifBlank { "Today" })
-                TimestampItem(label = "Start", value = work.startTime ?: "—")
-                TimestampItem(label = "Field End", value = work.submittedForReviewAt ?: work.endTime ?: "—")
-                TimestampItem(label = "Final End", value = work.completedAt ?: if (work.status == WorkStatus.COMPLETED) (work.endTime ?: "—") else "—")
+                TimestampItem(label = "Date", value = if (work.scheduledDate.isNotBlank()) DateTimeUtils.formatToIndiaDate(work.scheduledDate) else "Today")
+                TimestampItem(label = "Start", value = work.startTime?.let { DateTimeUtils.formatToIndiaTimeOnly(it) } ?: "—")
+                TimestampItem(label = "Field End", value = (work.submittedForReviewAt ?: work.endTime)?.let { DateTimeUtils.formatToIndiaTimeOnly(it) } ?: "—")
+                TimestampItem(label = "Final End", value = (work.completedAt ?: if (work.status == WorkStatus.COMPLETED) work.endTime else null)?.let { DateTimeUtils.formatToIndiaTimeOnly(it) } ?: "—")
             }
 
             Spacer(modifier = Modifier.height(12.dp))

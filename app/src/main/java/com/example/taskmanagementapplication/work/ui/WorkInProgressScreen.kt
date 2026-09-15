@@ -88,6 +88,7 @@ import com.example.taskmanagementapplication.core.ui.PhotoThumbnailView
 import com.example.taskmanagementapplication.core.ui.SecondaryButton
 import com.example.taskmanagementapplication.core.ui.SectionHeader
 import com.example.taskmanagementapplication.core.ui.SwipeActionButton
+import com.example.taskmanagementapplication.core.util.DateTimeUtils
 import com.example.taskmanagementapplication.core.ui.TimelineItem
 import com.example.taskmanagementapplication.work.viewmodel.WorkViewModel
 
@@ -202,7 +203,7 @@ fun WorkInProgressScreen(
                     Spacer(modifier = Modifier.height(8.dp))
                     if (work.startTime != null) {
                         Text(
-                            text = "Started at ${work.startTime}",
+                            text = "Started at ${DateTimeUtils.formatToIndiaTime(work.startTime)}",
                             style = MaterialTheme.typography.bodySmall,
                             color = Color.White.copy(alpha = 0.7f)
                         )

@@ -71,6 +71,7 @@ import androidx.compose.ui.unit.sp
 import com.example.taskmanagementapplication.core.model.PhotoCategory
 import com.example.taskmanagementapplication.core.model.PhotoUploadStatus
 import com.example.taskmanagementapplication.core.model.WorkPhoto
+import com.example.taskmanagementapplication.core.util.DateTimeUtils
 import com.example.taskmanagementapplication.core.theme.AccentOrange
 import com.example.taskmanagementapplication.core.theme.ErrorRed
 import com.example.taskmanagementapplication.core.theme.PrimaryLight
@@ -248,7 +249,7 @@ fun PhotoCard(
                     )
 
                     Text(
-                        text = photo.uploadedAt,
+                        text = DateTimeUtils.formatToIndiaTime(photo.uploadedAt),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 11.sp

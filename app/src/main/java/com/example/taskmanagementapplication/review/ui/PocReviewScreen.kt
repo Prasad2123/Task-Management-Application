@@ -85,6 +85,7 @@ import com.example.taskmanagementapplication.core.ui.PhotoThumbnailView
 import com.example.taskmanagementapplication.core.ui.SectionHeader
 import com.example.taskmanagementapplication.core.ui.SwipeActionButton
 import com.example.taskmanagementapplication.core.ui.TimelineItem
+import com.example.taskmanagementapplication.core.util.DateTimeUtils
 import com.example.taskmanagementapplication.work.ui.PhotoViewerDialog
 import com.example.taskmanagementapplication.work.viewmodel.WorkViewModel
 import kotlinx.coroutines.launch
@@ -231,7 +232,7 @@ fun PocReviewScreen(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                                 Text(
-                                    text = work.pocApprovalTime ?: "Recorded on site",
+                                    text = DateTimeUtils.formatToIndiaTime(work.pocApprovalTime),
                                     style = MaterialTheme.typography.bodyMedium,
                                     fontWeight = FontWeight.Bold,
                                     color = StatusCompleted
@@ -435,32 +436,59 @@ fun PocReviewScreen(
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        Column {
+                        Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "Start Timestamp",
+                                text = "Start Time",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
+                            Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                text = work.startTime ?: "Recorded on site",
+                                text = DateTimeUtils.formatToIndiaTime(work.startTime),
                                 style = MaterialTheme.typography.bodySmall,
-                                fontWeight = FontWeight.Medium
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurface
                             )
                         }
-                        Column(horizontalAlignment = Alignment.End) {
+                        Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "Field Completion Time",
+                                text = "Field Completion",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
+                            Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                text = work.submittedForReviewAt ?: work.completedAt ?: "Upon review request",
+                                text = DateTimeUtils.formatToIndiaTime(work.submittedForReviewAt ?: work.completedAt),
                                 style = MaterialTheme.typography.bodySmall,
-                                fontWeight = FontWeight.Medium
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurface
                             )
                         }
+                    }
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    val durationStr = DateTimeUtils.formatFieldDuration(
+                        work.startTime,
+                        work.submittedForReviewAt ?: work.completedAt
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Duration: ",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = durationStr,
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Bold,
+                            color = PrimaryLight
+                        )
                     }
 
                     Spacer(modifier = Modifier.height(10.dp))
@@ -957,7 +985,7 @@ private fun AssignedChecklistItemRow(
 ) {
     val taskLabel = item.taskLabel ?: item.title
     val performer = item.completedByName ?: performerName ?: "Service Boy"
-    val timestamp = item.completedAt ?: "Recorded on site"
+    val timestamp = DateTimeUtils.formatToIndiaTime(item.completedAt)
 
     Row(
         modifier = Modifier
@@ -1019,7 +1047,7 @@ private fun AdditionalWorkItemRow(
 ) {
     val taskLabel = item.taskLabel ?: item.title
     val performer = item.completedByName ?: performerName ?: "Service Boy"
-    val addedAt = item.createdAt ?: item.completedAt ?: "Recorded during work"
+    val addedAt = DateTimeUtils.formatToIndiaTime(item.createdAt ?: item.completedAt)
 
     Row(
         modifier = Modifier
