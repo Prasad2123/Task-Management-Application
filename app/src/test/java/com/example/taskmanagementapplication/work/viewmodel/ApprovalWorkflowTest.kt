@@ -21,6 +21,7 @@ class ApprovalWorkflowTest {
     @Before
     fun setUp() {
         viewModel = WorkViewModel()
+        viewModel.work.value.checklist.filter { !it.isCompleted }.forEach { viewModel.toggleChecklistItem(it.id) }
     }
 
     @Test

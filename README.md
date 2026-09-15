@@ -100,16 +100,21 @@ flowchart TD
 
 ## 🔑 Demo Accounts
 
-The application includes built-in mock authentication with pre-populated tasks, checklists, and photo records for instant evaluation:
+The application includes built-in authentication with role-tailored dashboards and permissions:
 
-| Role | Email Address | Password | Name |
-|:-----|:--------------|:---------|:-----|
-| **Service Boy (Technician)** | `service@demo.com` | `password` | Rahul Patil |
-| **Point of Contact (POC)** | `poc@demo.com` | `password` | Amit Sharma |
-| **Site Supervisor** | `supervisor@demo.com` | `password` | Suresh Patil |
+| Role | Email Address | Password | Name | Primary Responsibilities |
+|:-----|:--------------|:---------|:-----|:-------------------------|
+| **Administrator** | `admin@demo.com` | `password` | Admin User | Work Creation, Master Task Assignment, Fleet Availability & Monitoring |
+| **Service Boy (Technician)** | `service@demo.com` | `password` | Rahul Patil | On-site Execution, Checklist Completion, Photo Evidence & Submission |
+| **Point of Contact (POC)** | `poc@demo.com` | `password` | Amit Sharma | First-Level Client Verification, Checklist & Photo Inspection, POC Approval |
+| **Site Supervisor** | `supervisor@demo.com` | `password` | Suresh Patil | Operational Audit, Secondary Sign-Off, Quality Assurance & Closure |
 
 > [!TIP]
-> Log in as **Rahul Patil** (`service@demo.com`) to experience starting a job, marking checklists, and uploading photos. Then log in as **Amit Sharma** (`poc@demo.com`) to approve the submission!
+> 1. Log in as **Admin** (`admin@demo.com`) to assign new work with predefined master tasks to a FREE Service Boy.
+> 2. Log in as **Rahul Patil** (`service@demo.com`) to start the job, tick assigned tasks, capture real evidence photos, and submit for review.
+> 3. Log in as **Amit Sharma** (`poc@demo.com`) to approve the submission.
+> 4. Log in as **Suresh Patil** (`supervisor@demo.com`) for final approval.
+> 5. Log in as **Service Boy** to complete work and generate the authoritative multi-page PDF Work Report!
 
 ---
 
@@ -140,12 +145,15 @@ TaskManagementApplication/
 ### Technology Highlights
 * **Language**: 100% Kotlin with Coroutines and StateFlow.
 * **Modern Android UI**: Declarative Jetpack Compose using Material Design 3 (M3).
-* **Architecture**: Clean Architecture + MVVM (Model-View-ViewModel) with unidirectional data flow (UDF).
-* **Navigation**: Jetpack Navigation Compose with type-safe route parameters.
+* **Architecture**: Clean Architecture + MVVM with unidirectional data flow (UDF).
+* **Backend Integration**: Direct remote Supabase integration (PostgREST, RPCs, Storage buckets for photos and reports).
+* **PDF Engine**: Authoritative multi-page A4 PDF Report Generator (`PdfReportGenerator`) embedding actual high-resolution photos, metadata boxes, and audit timelines.
+* **Master Task Catalog**: Dynamic predefined checklist items with atomic historical snapshot preservation.
+* **Navigation**: Jetpack Navigation Compose with role-based routing and guards.
 * **Componentry**:
   * Custom `SwipeActionButton` with threshold detection.
   * Multi-step `WorkProgressStepper`.
-  * Fully categorized `PhotoCard` and `PhotoViewerDialog`.
+  * Fully categorized `PhotoCard` and `PhotoViewerDialog` with signed Supabase URLs.
   * Resilient Google Maps intent launcher with automatic fallback.
 * **Gradle Version Catalog**: Centralized dependency management via `libs.versions.toml`.
 

@@ -87,6 +87,7 @@ import com.example.taskmanagementapplication.core.model.WorkStatus
 import com.example.taskmanagementapplication.core.ui.PhotoThumbnailView
 import com.example.taskmanagementapplication.core.ui.SecondaryButton
 import com.example.taskmanagementapplication.core.ui.SectionHeader
+import com.example.taskmanagementapplication.core.ui.SwipeActionButton
 import com.example.taskmanagementapplication.core.ui.TimelineItem
 import com.example.taskmanagementapplication.work.viewmodel.WorkViewModel
 
@@ -97,6 +98,7 @@ fun WorkInProgressScreen(
     onViewDetails: () -> Unit,
     onViewChecklist: () -> Unit = {},
     onAddPhotos: () -> Unit,
+    onNavigateToCompleteAndSubmit: () -> Unit = {},
     onSubmitForReview: () -> Unit = {},
     onViewApprovalStatus: () -> Unit = {},
     onProceedToComplete: () -> Unit = {},
@@ -797,18 +799,16 @@ fun WorkInProgressScreen(
                     Spacer(modifier = Modifier.height(10.dp))
                 }
                 else -> {
-                    Button(
-                        onClick = onSubmitForReview,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(54.dp),
-                        shape = RoundedCornerShape(16.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = PrimaryLight)
-                    ) {
-                        Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(20.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("SUBMIT WORK FOR REVIEW", fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                    }
+                    // ── SWIPE TO COMPLETE WORK ──
+                    SwipeActionButton(
+                        label = "SWIPE TO COMPLETE WORK",
+                        completedLabel = "✓ TIMER STOPPED",
+                        trackColor = StatusCompleted,
+                        onSwipeComplete = {
+                            workViewModel.stopTimer()
+                            onNavigateToCompleteAndSubmit()
+                        }
+                    )
                     Spacer(modifier = Modifier.height(10.dp))
                 }
             }

@@ -12,6 +12,14 @@ enum class WorkStatus {
     REJECTED
 }
 
+data class MasterTask(
+    val id: Long,
+    val taskLabel: String,
+    val category: String = "GENERAL",
+    val displayOrder: Int = 0,
+    val isActive: Boolean = true
+)
+
 data class ChecklistItem(
     val id: String,
     val title: String,
@@ -19,6 +27,11 @@ data class ChecklistItem(
     val isCompleted: Boolean = false,
     val isAdditional: Boolean = false,
     val completedAt: String? = null,
+    val completedById: Long? = null,
+    val completedByName: String? = null,
+    val masterTaskId: Long? = null,
+    val taskLabel: String? = null,
+    val displayOrder: Int = 0,
     val createdAt: String? = null
 )
 
@@ -76,6 +89,9 @@ data class AdditionalWorkItem(
     val id: String,
     val workId: String,
     val description: String,
+    val masterTaskId: Long? = null,
+    val taskLabel: String? = null,
+    val createdById: Long? = null,
     val createdByName: String = "",
     val createdAt: String = ""
 )
@@ -86,8 +102,14 @@ data class Work(
     val companyName: String,
     val address: String,
     val serviceBoyName: String,
+    val serviceBoyPhone: String? = null,
+    val serviceBoyEmail: String? = null,
     val pocName: String,
+    val pocPhone: String? = null,
+    val pocEmail: String? = null,
     val supervisorName: String,
+    val supervisorPhone: String? = null,
+    val supervisorEmail: String? = null,
     val status: WorkStatus,
     val scheduledDate: String,
     val startTime: String? = null,
@@ -112,6 +134,7 @@ data class Work(
     val submittedForReviewAt: String? = null,
     val completedAt: String? = null,
     val readyForCompletion: Boolean = false,
+    val googleMapsLink: String? = null,
     // Backend IDs for API calls
     val backendId: Long? = null,
     val serviceBoyId: Long? = null,

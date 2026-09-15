@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.taskmanagementapplication.core.model.*
 import com.example.taskmanagementapplication.core.util.FileUtils
 import com.example.taskmanagementapplication.data.dto.ApprovalDto
+import com.example.taskmanagementapplication.data.dto.UserProfileDto
 import com.example.taskmanagementapplication.data.dto.WorkReportDto
 import com.example.taskmanagementapplication.data.local.TokenManager
 import com.example.taskmanagementapplication.data.network.NetworkModule
@@ -173,6 +174,22 @@ class WorkViewModel @JvmOverloads constructor(
             scheduledDate = "",
             backendId = null
         )
+
+        val defaultMasterTasks = listOf(
+            MasterTask(1L, "General Site Inspection", "INSPECTION", 1),
+            MasterTask(2L, "Pest Control Treatment", "TREATMENT", 2),
+            MasterTask(3L, "Equipment Inspection", "INSPECTION", 3),
+            MasterTask(4L, "Preventive Maintenance Check", "MAINTENANCE", 4),
+            MasterTask(5L, "Safety Inspection", "SAFETY", 5),
+            MasterTask(6L, "Area Cleaning", "CLEANING", 6),
+            MasterTask(7L, "Electrical Inspection", "ELECTRICAL", 7),
+            MasterTask(8L, "HVAC Inspection", "HVAC", 8),
+            MasterTask(9L, "Equipment Cleaning", "CLEANING", 9),
+            MasterTask(10L, "Deep Cleaning", "CLEANING", 10),
+            MasterTask(11L, "Additional Pest Treatment", "TREATMENT", 11),
+            MasterTask(12L, "Equipment Repair", "REPAIR", 12),
+            MasterTask(13L, "Additional Area Inspection", "INSPECTION", 13)
+        )
     }
 
     // ---- Location State ----
@@ -225,6 +242,39 @@ class WorkViewModel @JvmOverloads constructor(
     // ---- Notifications (Real online backend notifications) ----
     private val _notifications = MutableStateFlow<List<AppNotification>>(emptyList())
     val notifications: StateFlow<List<AppNotification>> = _notifications.asStateFlow()
+
+    // ---- Master Tasks Catalog ----
+    private val _masterTasks = MutableStateFlow<List<MasterTask>>(defaultMasterTasks)
+    val masterTasks: StateFlow<List<MasterTask>> = _masterTasks.asStateFlow()
+
+    // ---- Available Users for Work Assignment ----
+    private val _availableUsers = MutableStateFlow<List<UserProfileDto>>(
+        listOf(
+            UserProfileDto(id = 1L, email = "service@demo.com", role = "SERVICE_BOY", name = "Rahul Patil"),
+            UserProfileDto(id = 2L, email = "poc@demo.com", role = "POC", name = "Amit Sharma"),
+            UserProfileDto(id = 3L, email = "supervisor@demo.com", role = "SUPERVISOR", name = "Suresh Patil")
+        )
+    )
+    val availableUsers: StateFlow<List<UserProfileDto>> = _availableUsers.asStateFlow()
+
+    init {
+        loadMasterTasks()
+        loadUsers()
+    }
+
+    fun loadUsers() {
+        val repo = workRepository ?: return
+        viewModelScope.launch {
+            when (val result = repo.getAllUsers()) {
+                is NetworkResult.Success -> {
+                    if (result.data.isNotEmpty()) {
+                        _availableUsers.value = result.data
+                    }
+                }
+                else -> {}
+            }
+        }
+    }
 
     // -------------------------------------------------------
     // Data Loading
@@ -726,7 +776,7 @@ class WorkViewModel @JvmOverloads constructor(
             viewModelScope.launch {
                 _isSubmitting.value = true
                 val fullDesc = if (description.isBlank()) trimmed else "$trimmed - ${description.trim()}"
-                when (val result = repo.createAdditionalWork(workId, fullDesc, clientItemId)) {
+                when (val result = repo.createAdditionalWork(workId = workId, description = fullDesc, clientItemId = clientItemId)) {
                     is NetworkResult.Success -> {
                         _additionalWork.update { it + result.data }
                         addActivity("Additional work added: \"$trimmed\"", now)
@@ -812,6 +862,7 @@ class WorkViewModel @JvmOverloads constructor(
             viewModelScope.launch {
                 repo.deleteAdditionalWork(workId, itemIdLong)
                 _additionalWork.update { it.filterNot { aw -> aw.id == itemId } }
+                _work.update { it.copy(checklist = it.checklist.filterNot { c -> c.id == itemId }) }
                 addActivity("Additional work removed: \"$desc\"", now)
             }
         } else {
@@ -820,6 +871,299 @@ class WorkViewModel @JvmOverloads constructor(
             addActivity("Additional work removed: \"${item.title}\"", now)
         }
         return true
+    }
+
+    // -------------------------------------------------------
+    // Master Tasks & Work Checklist Logic
+    // -------------------------------------------------------
+
+    fun loadMasterTasks() {
+        val repo = workRepository ?: return
+        viewModelScope.launch {
+            when (val result = repo.getMasterTasks()) {
+                is NetworkResult.Success -> {
+                    if (result.data.isNotEmpty()) {
+                        _masterTasks.value = result.data
+                    }
+                }
+                else -> {}
+            }
+        }
+    }
+
+    /**
+     * Requirement 8: A task already assigned to the work must NOT appear as selectable Additional Work.
+     * Excludes tasks already assigned to that work.
+     */
+    fun getAvailableAdditionalTasks(work: Work): List<MasterTask> {
+        val assignedLabels = work.checklist
+            .filter { !it.isAdditional }
+            .map { it.title.trim().lowercase() }
+            .toSet()
+
+        val assignedMasterIds = work.checklist
+            .filter { !it.isAdditional }
+            .mapNotNull { it.masterTaskId }
+            .toSet()
+
+        return _masterTasks.value.filter { masterTask ->
+            masterTask.id !in assignedMasterIds &&
+            masterTask.taskLabel.trim().lowercase() !in assignedLabels
+        }
+    }
+
+    /**
+     * Requirement 4: Required Checkbox Validation
+     * Submission is NOT allowed while any assigned task remains unchecked.
+     * Only 4/4 completed allows submission.
+     */
+    fun allAssignedTasksCompleted(work: Work): Boolean {
+        val assigned = work.checklist.filter { !it.isAdditional }
+        return assigned.isNotEmpty() && assigned.all { it.isCompleted }
+    }
+
+    fun isAdditionalTaskSelected(work: Work, task: MasterTask): Boolean {
+        return work.checklist.any {
+            it.isAdditional && (it.masterTaskId == task.id || it.title.equals(task.taskLabel, ignoreCase = true))
+        }
+    }
+
+    fun toggleAdditionalMasterTask(task: MasterTask): Boolean {
+        val currentWork = _work.value
+        val existing = currentWork.checklist.find {
+            it.isAdditional && (it.masterTaskId == task.id || it.title.equals(task.taskLabel, ignoreCase = true))
+        }
+        return if (existing != null) {
+            deleteAdditionalWork(existing.id)
+        } else {
+            addAdditionalMasterTask(task)
+        }
+    }
+
+    fun addAdditionalMasterTask(task: MasterTask): Boolean {
+        val currentWork = _work.value
+        val workId = currentWork.backendId
+        val now = currentTimeString()
+        val repo = workRepository
+        val clientItemId = "item_" + java.util.UUID.randomUUID().toString()
+
+        if (workId != null && repo != null) {
+            if (!isOnline.value) {
+                _errorMessage.value = "Internet connection required to complete this action"
+                return false
+            }
+            if (_isSubmitting.value) return false
+            viewModelScope.launch {
+                _isSubmitting.value = true
+                when (val result = repo.createAdditionalWork(
+                    workId = workId,
+                    description = task.taskLabel,
+                    masterTaskId = task.id,
+                    taskLabel = task.taskLabel,
+                    clientItemId = clientItemId
+                )) {
+                    is NetworkResult.Success -> {
+                        _additionalWork.update { it + result.data }
+                        val newChecklistItem = ChecklistItem(
+                            id = result.data.id,
+                            title = task.taskLabel,
+                            description = "Additional task performed",
+                            isCompleted = true,
+                            isAdditional = true,
+                            completedAt = now,
+                            masterTaskId = task.id,
+                            taskLabel = task.taskLabel,
+                            createdAt = now
+                        )
+                        _work.update { it.copy(checklist = it.checklist + newChecklistItem) }
+                        addActivity("Additional work recorded: \"${task.taskLabel}\"", now)
+                        persistSnapshot()
+                    }
+                    is NetworkResult.Error -> {
+                        _errorMessage.value = result.toUserMessage()
+                    }
+                    else -> {}
+                }
+                _isSubmitting.value = false
+            }
+            return true
+        } else {
+            // Local test fallback
+            val newItem = ChecklistItem(
+                id = "ADD_${System.currentTimeMillis()}_${task.id}",
+                title = task.taskLabel,
+                description = "Additional task performed",
+                isCompleted = true,
+                isAdditional = true,
+                completedAt = now,
+                masterTaskId = task.id,
+                taskLabel = task.taskLabel,
+                createdAt = now
+            )
+            _work.update { it.copy(checklist = it.checklist + newItem) }
+            addActivity("Additional work recorded: \"${task.taskLabel}\"", now)
+            return true
+        }
+    }
+
+    fun isServiceBoyFree(serviceBoyId: Long): Boolean {
+        val busyStatuses = setOf(
+            WorkStatus.NOT_STARTED,
+            WorkStatus.WORK_STARTED,
+            WorkStatus.IN_PROGRESS,
+            WorkStatus.WAITING_FOR_REVIEW,
+            WorkStatus.WAITING_FOR_POC_REVIEW,
+            WorkStatus.WAITING_FOR_SUPERVISOR_REVIEW,
+            WorkStatus.APPROVED
+        )
+        return _predefinedWorks.value.none { work ->
+            work.serviceBoyId == serviceBoyId && work.status in busyStatuses
+        }
+    }
+
+    fun getServiceBoyStatus(serviceBoyId: Long): String {
+        val activeWork = _predefinedWorks.value.firstOrNull { work ->
+            work.serviceBoyId == serviceBoyId && work.status != WorkStatus.COMPLETED && work.status != WorkStatus.REJECTED
+        }
+        return if (activeWork == null) {
+            "FREE"
+        } else {
+            when (activeWork.status) {
+                WorkStatus.NOT_STARTED -> "ASSIGNED"
+                WorkStatus.WORK_STARTED, WorkStatus.IN_PROGRESS -> "IN_PROGRESS"
+                WorkStatus.WAITING_FOR_POC_REVIEW -> "SUBMITTED_FOR_REVIEW"
+                WorkStatus.WAITING_FOR_SUPERVISOR_REVIEW, WorkStatus.WAITING_FOR_REVIEW -> "SUBMITTED_FOR_REVIEW"
+                WorkStatus.APPROVED -> "SUPERVISOR_APPROVED"
+                else -> activeWork.status.name
+            }
+        }
+    }
+
+    fun getServiceBoyStatusForWork(work: Work): String {
+        return when (work.status) {
+            WorkStatus.NOT_STARTED -> "ASSIGNED"
+            WorkStatus.WORK_STARTED, WorkStatus.IN_PROGRESS -> "IN_PROGRESS"
+            WorkStatus.WAITING_FOR_POC_REVIEW -> "SUBMITTED_FOR_REVIEW"
+            WorkStatus.WAITING_FOR_SUPERVISOR_REVIEW, WorkStatus.WAITING_FOR_REVIEW -> "POC_APPROVED"
+            WorkStatus.APPROVED -> "SUPERVISOR_APPROVED"
+            WorkStatus.COMPLETED -> "COMPLETED"
+            WorkStatus.REJECTED -> "REJECTED"
+        }
+    }
+
+    // Admin work creation with selected checklist
+    fun createWorkWithChecklist(
+        companyName: String,
+        address: String,
+        serviceBoyId: Long,
+        pocId: Long,
+        supervisorId: Long,
+        masterTaskIds: List<Long>,
+        scheduledDate: String? = null,
+        latitude: Double? = 17.5230403,
+        longitude: Double? = 73.5378423,
+        googleMapsLink: String? = null,
+        title: String? = null,
+        onSuccess: (() -> Unit)? = null
+    ) {
+        if (companyName.isBlank()) {
+            _errorMessage.value = "Company Name is required."
+            return
+        }
+        if (address.isBlank()) {
+            _errorMessage.value = "Location is required."
+            return
+        }
+        if (latitude == null || longitude == null || latitude < -90.0 || latitude > 90.0 || longitude < -180.0 || longitude > 180.0) {
+            _errorMessage.value = "Invalid coordinates. Latitude (-90 to 90), Longitude (-180 to 180)."
+            return
+        }
+        val resolvedLink = if (!googleMapsLink.isNullOrBlank()) {
+            googleMapsLink
+        } else {
+            "https://www.google.com/maps?q=$latitude,$longitude"
+        }
+        if (resolvedLink.isBlank()) {
+            _errorMessage.value = "Google Maps link is required."
+            return
+        }
+        if (masterTaskIds.isEmpty()) {
+            _errorMessage.value = "Select at least one task for this work."
+            return
+        }
+        if (!isServiceBoyFree(serviceBoyId)) {
+            _errorMessage.value = "Selected Service Boy is currently engaged in active work. Please select an available Service Boy."
+            return
+        }
+
+        val resolvedTitle = if (!title.isNullOrBlank()) title else "$companyName Service Work"
+        val repo = workRepository
+        if (repo != null) {
+            viewModelScope.launch {
+                _isSubmitting.value = true
+                _errorMessage.value = null
+                when (val result = repo.createWorkWithChecklist(
+                    title = resolvedTitle,
+                    companyName = companyName,
+                    address = address,
+                    serviceBoyId = serviceBoyId,
+                    pocId = pocId,
+                    supervisorId = supervisorId,
+                    masterTaskIds = masterTaskIds,
+                    scheduledDate = scheduledDate,
+                    googleMapsLink = resolvedLink,
+                    latitude = latitude,
+                    longitude = longitude
+                )) {
+                    is NetworkResult.Success -> {
+                        loadMyWork()
+                        onSuccess?.invoke()
+                    }
+                    is NetworkResult.Error -> {
+                        _errorMessage.value = result.toUserMessage()
+                    }
+                    else -> {}
+                }
+                _isSubmitting.value = false
+            }
+        } else {
+            // Local fallback for unit tests
+            val selectedMasterTasks = _masterTasks.value.filter { it.id in masterTaskIds }
+            val newChecklist = selectedMasterTasks.mapIndexed { idx, mt ->
+                ChecklistItem(
+                    id = "CHK_${System.currentTimeMillis()}_$idx",
+                    title = mt.taskLabel,
+                    description = "Standard requirement: ${mt.taskLabel}",
+                    isCompleted = false,
+                    isAdditional = false,
+                    masterTaskId = mt.id,
+                    taskLabel = mt.taskLabel,
+                    displayOrder = idx + 1
+                )
+            }
+            val newWork = Work(
+                id = "WORK_${System.currentTimeMillis()}",
+                title = resolvedTitle,
+                companyName = companyName,
+                address = address,
+                latitude = latitude,
+                longitude = longitude,
+                googleMapsLink = resolvedLink,
+                serviceBoyName = _availableUsers.value.find { it.id == serviceBoyId }?.name ?: "Assigned Service Boy",
+                pocName = _availableUsers.value.find { it.id == pocId }?.name ?: "Assigned POC",
+                supervisorName = _availableUsers.value.find { it.id == supervisorId }?.name ?: "Assigned Supervisor",
+                status = WorkStatus.NOT_STARTED,
+                scheduledDate = scheduledDate ?: "Today",
+                checklist = newChecklist,
+                backendId = System.currentTimeMillis(),
+                serviceBoyId = serviceBoyId,
+                pocId = pocId,
+                supervisorId = supervisorId
+            )
+            _predefinedWorks.update { listOf(newWork) + it }
+            _work.value = newWork
+            onSuccess?.invoke()
+        }
     }
 
     // -------------------------------------------------------
@@ -837,6 +1181,17 @@ class WorkViewModel @JvmOverloads constructor(
                 _errorMessage.value = "Internet connection required to complete this action"
                 return false
             }
+        }
+
+        // Enforce all assigned checklist items must be completed before submission
+        val assigned = currentWork.checklist.filter { !it.isAdditional }
+        val incompleteAssigned = assigned.count { !it.isCompleted }
+        if (assigned.isNotEmpty() && incompleteAssigned > 0) {
+            _errorMessage.value = "Complete all assigned tasks before submitting."
+            return false
+        }
+
+        if (workId != null && repo != null) {
             if (_isSubmitting.value) return false
             viewModelScope.launch {
                 _isSubmitting.value = true

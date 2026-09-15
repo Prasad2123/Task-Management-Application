@@ -36,7 +36,10 @@ interface ApiService {
     suspend fun getMyWorks(): Response<List<WorkDto>>
 
     @GET("rest/v1/works")
-    suspend fun getWork(@Query("id") idFilter: String): Response<List<WorkDto>>
+    suspend fun getWork(
+        @Query("id") idFilter: String,
+        @Query("select") select: String = "*,serviceBoy:service_boy_id(id,name,email,phone,role),poc:poc_id(id,name,email,phone,role),supervisor:supervisor_id(id,name,email,phone,role)"
+    ): Response<List<WorkDto>>
 
     @POST("rest/v1/rpc/start_work")
     suspend fun startWork(@Body request: StartWorkRpcRequest): Response<WorkDto>
@@ -55,6 +58,19 @@ interface ApiService {
 
     @POST("rest/v1/rpc/resume_work")
     suspend fun resumeWork(@Body request: WorkIdRpcRequest): Response<WorkDto>
+
+    @POST("rest/v1/rpc/create_work_with_checklist")
+    suspend fun createWorkWithChecklist(@Body request: CreateWorkWithChecklistRpcRequest): Response<WorkDto>
+
+    // ====================================================================
+    // MASTER TASKS
+    // ====================================================================
+
+    @GET("rest/v1/master_tasks")
+    suspend fun getMasterTasks(
+        @Query("is_active") activeOnly: String = "eq.true",
+        @Query("order") order: String = "display_order.asc"
+    ): Response<List<MasterTaskDto>>
 
     // ====================================================================
     // CHECKLIST ITEMS

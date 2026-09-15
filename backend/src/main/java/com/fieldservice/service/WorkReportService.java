@@ -327,7 +327,7 @@ public class WorkReportService {
             document.add(appTable);
 
             // 5. Checklist Execution Table
-            document.add(new Paragraph("4. Predefined Checklist Execution", fontSectionHeader));
+            document.add(new Paragraph("4. Predefined / Assigned Checklist Execution", fontSectionHeader));
             PdfPTable chkTable = new PdfPTable(3);
             chkTable.setWidthPercentage(100);
             chkTable.setWidths(new float[]{50, 25, 25});
@@ -351,24 +351,28 @@ public class WorkReportService {
             document.add(chkTable);
 
             // 6. Additional Work Items Table
-            if (!additionalWork.isEmpty()) {
-                document.add(new Paragraph("5. Additional Extra Work Performed", fontSectionHeader));
-                PdfPTable addTable = new PdfPTable(3);
-                addTable.setWidthPercentage(100);
-                addTable.setWidths(new float[]{60, 20, 20});
-                addTable.setSpacingBefore(6);
-                addTable.setSpacingAfter(15);
+            document.add(new Paragraph("5. Additional Work Performed", fontSectionHeader));
+            PdfPTable addTable = new PdfPTable(3);
+            addTable.setWidthPercentage(100);
+            addTable.setWidths(new float[]{50, 25, 25});
+            addTable.setSpacingBefore(6);
+            addTable.setSpacingAfter(15);
 
-                addTableHeader(addTable, new String[]{"Description", "Added By", "Created At"}, fontLabel);
-                for (AdditionalWorkEntity aw : additionalWork) {
-                    String creator = aw.getCreatedBy() != null ? aw.getCreatedBy().getName() : "Technician";
-                    String cTime = aw.getCreatedAt() != null ? TIME_FORMATTER.format(aw.getCreatedAt()) : "-";
-                    addTable.addCell(createCell(aw.getDescription(), fontValue));
-                    addTable.addCell(createCell(creator, fontValue));
-                    addTable.addCell(createCell(cTime, fontValue));
-                }
-                document.add(addTable);
+            addTableHeader(addTable, new String[]{"Additional Task / Description", "Performed By", "Recorded At"}, fontLabel);
+            for (AdditionalWorkEntity aw : additionalWork) {
+                String creator = aw.getCreatedBy() != null ? aw.getCreatedBy().getName() : "Technician";
+                String cTime = aw.getCreatedAt() != null ? TIME_FORMATTER.format(aw.getCreatedAt()) : "-";
+                addTable.addCell(createCell(aw.getDescription(), fontValue));
+                addTable.addCell(createCell(creator, fontValue));
+                addTable.addCell(createCell(cTime, fontValue));
             }
+            if (additionalWork.isEmpty()) {
+                PdfPCell emptyCell = new PdfPCell(new Phrase("No additional work performed for this work.", fontValue));
+                emptyCell.setColspan(3);
+                emptyCell.setPadding(8);
+                addTable.addCell(emptyCell);
+            }
+            document.add(addTable);
 
             // 7. Chronological Activity Timeline Table
             document.add(new Paragraph("6. Authoritative Activity Audit Timeline", fontSectionHeader));

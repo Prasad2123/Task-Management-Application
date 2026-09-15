@@ -12,6 +12,7 @@ object Routes {
     const val WORK_IN_PROGRESS = "work_in_progress"
     const val WORK_CHECKLIST = "work_checklist"
     const val WORK_PHOTOS = "work_photos"
+    const val COMPLETE_AND_SUBMIT = "complete_and_submit"
     const val SUBMIT_REVIEW = "submit_review"
     const val APPROVAL_STATUS = "approval_status"
     const val COMPLETE_WORK = "complete_work"

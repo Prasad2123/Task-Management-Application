@@ -79,4 +79,24 @@ object MapUtils {
     fun openGoogleMaps(context: Context, address: String, label: String = "") {
         openGoogleMaps(context, null, null, address, label)
     }
+
+    /**
+     * Opens a direct Google Maps URL in browser or Google Maps app.
+     */
+    fun openGoogleMapsUrl(context: Context, url: String) {
+        if (url.isBlank()) return
+        try {
+            val formattedUrl = if (!url.startsWith("http://") && !url.startsWith("https://") && !url.startsWith("geo:")) {
+                "https://$url"
+            } else {
+                url
+            }
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(formattedUrl)).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            Toast.makeText(context, "Could not open map link", Toast.LENGTH_SHORT).show()
+        }
+    }
 }

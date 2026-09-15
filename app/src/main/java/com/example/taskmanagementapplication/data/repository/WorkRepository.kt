@@ -1,8 +1,11 @@
 package com.example.taskmanagementapplication.data.repository
 
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.pdf.PdfDocument
+import com.example.taskmanagementapplication.work.report.PdfReportGenerator
 import com.example.taskmanagementapplication.BuildConfig
 import com.example.taskmanagementapplication.core.model.*
 import com.example.taskmanagementapplication.data.dto.*
@@ -116,6 +119,54 @@ class WorkRepository(
     }
 
     // ====================================================================
+    // MASTER TASKS
+    // ====================================================================
+
+    suspend fun getMasterTasks(): NetworkResult<List<MasterTask>> = safeCall {
+        val response = apiService.getMasterTasks()
+        NetworkModule.toNetworkResult(response).mapSuccess { dtos ->
+            dtos.map { it.toDomainModel() }
+        }
+    }
+
+    suspend fun createWorkWithChecklist(
+        title: String,
+        companyName: String,
+        address: String,
+        serviceBoyId: Long,
+        pocId: Long,
+        supervisorId: Long,
+        masterTaskIds: List<Long>,
+        scheduledDate: String? = null,
+        googleMapsLink: String? = null,
+        latitude: Double? = null,
+        longitude: Double? = null,
+        allowedRadiusMeters: Double = 150.0
+    ): NetworkResult<Work> = safeCall {
+        val request = CreateWorkWithChecklistRpcRequest(
+            title = title,
+            companyName = companyName,
+            address = address,
+            serviceBoyId = serviceBoyId,
+            pocId = pocId,
+            supervisorId = supervisorId,
+            masterTaskIds = masterTaskIds,
+            scheduledDate = scheduledDate,
+            googleMapsLink = googleMapsLink,
+            latitude = latitude,
+            longitude = longitude,
+            allowedRadiusMeters = allowedRadiusMeters
+        )
+        val response = apiService.createWorkWithChecklist(request)
+        NetworkModule.toNetworkResult(response).mapSuccess { it.toDomainModel() }
+    }
+
+    suspend fun getAllUsers(): NetworkResult<List<UserProfileDto>> = safeCall {
+        val response = apiService.getAllUsers()
+        NetworkModule.toNetworkResult(response)
+    }
+
+    // ====================================================================
     // ADDITIONAL WORK
     // ====================================================================
 
@@ -129,13 +180,18 @@ class WorkRepository(
     suspend fun createAdditionalWork(
         workId: Long,
         description: String,
+        masterTaskId: Long? = null,
+        taskLabel: String? = null,
         clientItemId: String? = null
     ): NetworkResult<AdditionalWorkItem> = safeCall {
+        val finalLabel = taskLabel ?: description
         try {
             val request = AddAdditionalWorkRpcRequest(
                 workId = workId,
                 description = description,
-                clientItemId = clientItemId
+                clientItemId = clientItemId,
+                masterTaskId = masterTaskId,
+                taskLabel = finalLabel
             )
             val rpcResponse = apiService.addAdditionalWork(request)
             if (rpcResponse.isSuccessful && rpcResponse.body() != null) {
@@ -145,12 +201,12 @@ class WorkRepository(
             // Fall back to direct PostgREST insert if RPC is not available in mock/test
         }
 
-        val currentUserId = tokenManager?.getUserId()
         val body = CreateAdditionalWorkBody(
             workId = workId,
             description = description,
-            clientItemId = clientItemId,
-            createdById = currentUserId
+            masterTaskId = masterTaskId,
+            taskLabel = finalLabel,
+            clientItemId = clientItemId
         )
         val response = apiService.createAdditionalWork(body)
         val result = NetworkModule.toNetworkResult(response)
@@ -265,8 +321,13 @@ class WorkRepository(
                     val signResp = apiService.createSignedPhotoUrl(storageRef)
                     if (signResp.isSuccessful && signResp.body() != null) {
                         val signedPath = signResp.body()!!.signedURL
-                        finalUrl = if (signedPath.startsWith("http")) signedPath
-                        else BuildConfig.SUPABASE_URL.trimEnd('/') + if (signedPath.startsWith("/")) signedPath else "/$signedPath"
+                        finalUrl = if (signedPath.startsWith("http")) {
+                            signedPath
+                        } else {
+                            val prefix = if (signedPath.startsWith("/storage/v1")) "" else "/storage/v1"
+                            val normPath = if (signedPath.startsWith("/")) signedPath else "/$signedPath"
+                            BuildConfig.SUPABASE_URL.trimEnd('/') + prefix + normPath
+                        }
                     }
                 } catch (e: Exception) {
                     // Fall back to original photoUrl
@@ -477,8 +538,29 @@ class WorkRepository(
         val workResult = getWork(workId)
         val work = if (workResult is NetworkResult.Success) workResult.data else null
 
-        // 3. Authoritatively generate genuine PDF document via Android's PdfDocument
-        val pdfBytes = generateWorkReportPdf(workId, work)
+        // 3. Authoritatively generate genuine PDF document via PdfReportGenerator
+        val photoBitmaps = mutableListOf<Pair<WorkPhoto, Bitmap>>()
+        if (work != null && work.photos.isNotEmpty()) {
+            for (photo in work.photos) {
+                try {
+                    val url = photo.remoteUrl
+                    if (!url.isNullOrBlank()) {
+                        val resp = apiService.streamBinaryDirectly(url)
+                        if (resp.isSuccessful) {
+                            resp.body()?.byteStream()?.use { stream ->
+                                val bmp = BitmapFactory.decodeStream(stream)
+                                if (bmp != null) {
+                                    photoBitmaps.add(Pair(photo, bmp))
+                                }
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    // Non-critical if photo download fails
+                }
+            }
+        }
+        val pdfBytes = PdfReportGenerator.generate(workId, work, photoBitmaps)
 
         // 4. Upload generated PDF to Supabase Storage 'work-reports' bucket
         try {
@@ -492,143 +574,7 @@ class WorkRepository(
     }
 
     private fun generateWorkReportPdf(workId: Long, work: Work?): ByteArray {
-        try {
-            val document = PdfDocument()
-            val pageInfo = PdfDocument.PageInfo.Builder(595, 842, 1).create() // Standard A4 (points)
-            val page = document.startPage(pageInfo)
-            if (page != null) {
-                val canvas = page.canvas
-                val paint = Paint()
-
-                // Header Background
-                paint.color = Color.parseColor("#1E3A8A") // Dark Blue
-                canvas.drawRect(0f, 0f, 595f, 95f, paint)
-
-                // Header Text
-                paint.color = Color.WHITE
-                paint.textSize = 18f
-                paint.isFakeBoldText = true
-                canvas.drawText("FIELD SERVICE COMPLETION REPORT", 30f, 42f, paint)
-
-                paint.textSize = 11f
-                paint.isFakeBoldText = false
-                canvas.drawText("Authoritative Supabase Report — Work ID #${workId}", 30f, 68f, paint)
-
-                // Content Section
-                paint.color = Color.BLACK
-                paint.textSize = 13f
-                paint.isFakeBoldText = true
-                var y = 125f
-
-                val title = work?.title ?: "Monthly Pest Control Service - SUPABASE TEST"
-                canvas.drawText("Work Title: $title", 30f, y, paint)
-                y += 22f
-
-                paint.textSize = 10f
-                paint.isFakeBoldText = false
-                val status = work?.status?.name ?: "COMPLETED"
-                canvas.drawText("Status: $status", 30f, y, paint)
-                y += 16f
-
-                val company = work?.companyName?.ifBlank { "ABC Industrial Services" } ?: "ABC Industrial Services"
-                canvas.drawText("Client / Company: $company", 30f, y, paint)
-                y += 16f
-
-                val address = work?.address?.ifBlank { "Site Area, Sector 4" } ?: "Site Area, Sector 4"
-                canvas.drawText("Site Address: $address", 30f, y, paint)
-                y += 24f
-
-                // Personnel Section
-                paint.isFakeBoldText = true
-                paint.textSize = 11f
-                canvas.drawText("Personnel & Role Authorizations:", 30f, y, paint)
-                paint.isFakeBoldText = false
-                paint.textSize = 10f
-                y += 16f
-
-                val serviceBoy = work?.serviceBoyName?.ifBlank { "Assigned Engineer" } ?: "Assigned Engineer"
-                canvas.drawText("• Service Boy: $serviceBoy", 40f, y, paint)
-                y += 15f
-
-                val poc = work?.pocName?.ifBlank { "Assigned POC" } ?: "Assigned POC"
-                val pocStatus = when (work?.pocApproved) {
-                    true -> "APPROVED"
-                    false -> "REJECTED"
-                    null -> "PENDING"
-                }
-                canvas.drawText("• POC: $poc — Status: $pocStatus", 40f, y, paint)
-                y += 15f
-
-                val supervisor = work?.supervisorName?.ifBlank { "Assigned Supervisor" } ?: "Assigned Supervisor"
-                val supStatus = when (work?.supervisorApproved) {
-                    true -> "APPROVED"
-                    false -> "REJECTED"
-                    null -> "PENDING"
-                }
-                canvas.drawText("• Supervisor: $supervisor — Status: $supStatus", 40f, y, paint)
-                y += 24f
-
-                // Verification & Timing
-                paint.isFakeBoldText = true
-                paint.textSize = 11f
-                canvas.drawText("Authoritative Timestamp & Location Verification:", 30f, y, paint)
-                paint.isFakeBoldText = false
-                paint.textSize = 10f
-                y += 16f
-
-                val scheduled = work?.scheduledDate ?: "Scheduled Date"
-                canvas.drawText("• Scheduled Date: $scheduled", 40f, y, paint)
-                y += 15f
-
-                val startTime = work?.startTime ?: "Work Start"
-                canvas.drawText("• Start Time: $startTime", 40f, y, paint)
-                y += 15f
-
-                val endTime = work?.endTime ?: work?.completedAt ?: "Completed"
-                canvas.drawText("• Completed Time: $endTime", 40f, y, paint)
-                y += 15f
-
-                val gpsText = if (work?.latitude != null && work.longitude != null) {
-                    "Lat: ${work.latitude}, Lng: ${work.longitude} (Verified GPS Geofence: ${work.allowedRadiusMeters.toInt()}m)"
-                } else {
-                    "GPS Geofence: 150m (Location Recorded)"
-                }
-                canvas.drawText("• GPS Location: $gpsText", 40f, y, paint)
-                y += 24f
-
-                // Checklist Section
-                paint.isFakeBoldText = true
-                paint.textSize = 11f
-                canvas.drawText("Verified Checklist Execution:", 30f, y, paint)
-                paint.isFakeBoldText = false
-                paint.textSize = 10f
-                y += 16f
-
-                val checklistItems = work?.checklist ?: emptyList()
-
-                for (item in checklistItems) {
-                    val check = if (item.isCompleted) "[X]" else "[ ]"
-                    canvas.drawText("$check ${item.title}", 40f, y, paint)
-                    y += 15f
-                }
-                y += 20f
-
-                // Footer
-                paint.color = Color.parseColor("#6B7280")
-                paint.textSize = 9f
-                canvas.drawText("Authoritatively generated and stored in Supabase Storage bucket 'work-reports'.", 30f, 800f, paint)
-
-                document.finishPage(page)
-
-                val outputStream = ByteArrayOutputStream()
-                document.writeTo(outputStream)
-                document.close()
-                return outputStream.toByteArray()
-            }
-        } catch (e: Throwable) {
-            // Graceful fallback for environments where PdfDocument is not fully mocked
-        }
-        return "%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[]/Count 0>>endobj\nxref\n0 3\n0000000000 65535 f\n0000000009 00000 n\n0000000052 00000 n\ntrailer<</Size 3/Root 1 0 R>>\nstartxref\n101\n%%EOF\n".toByteArray(Charsets.ISO_8859_1)
+        return PdfReportGenerator.generate(workId, work)
     }
 
     private fun bodyToString(requestBody: RequestBody): String {
@@ -685,8 +631,14 @@ class WorkRepository(
         companyName = this.companyName ?: "",
         address = this.address ?: "",
         serviceBoyName = this.serviceBoy?.name ?: "",
+        serviceBoyPhone = this.serviceBoy?.phone,
+        serviceBoyEmail = this.serviceBoy?.email,
         pocName = this.poc?.name ?: "",
+        pocPhone = this.poc?.phone,
+        pocEmail = this.poc?.email,
         supervisorName = this.supervisor?.name ?: "",
+        supervisorPhone = this.supervisor?.phone,
+        supervisorEmail = this.supervisor?.email,
         status = this.status.toWorkStatus(),
         scheduledDate = this.scheduledDate ?: "",
         startTime = this.startTime,
@@ -698,11 +650,17 @@ class WorkRepository(
         } else "",
         latitude = this.latitude,
         longitude = this.longitude,
+        googleMapsLink = this.googleMapsLink,
         allowedRadiusMeters = this.allowedRadiusMeters ?: 150.0,
         locationVerified = this.locationVerified,
         distanceFromWorkMeters = this.distanceFromWorkMeters,
         readyForCompletion = this.readyForCompletion ?: (this.status == "SUPERVISOR_APPROVED" || this.status == "READY_FOR_COMPLETION"),
         backendId = this.id,
+        serviceBoyId = this.serviceBoyId ?: this.serviceBoy?.id,
+        pocId = this.pocId ?: this.poc?.id,
+        supervisorId = this.supervisorId ?: this.supervisor?.id,
+        submittedForReviewAt = this.submittedAt,
+        completedAt = this.completedAt,
         checklist = emptyList(),
         photos = emptyList()
     )
@@ -719,19 +677,36 @@ class WorkRepository(
 
     private fun ChecklistItemDto.toDomainModel(): ChecklistItem = ChecklistItem(
         id = this.id.toString(),
-        title = this.title,
+        title = this.taskLabel?.ifBlank { this.title } ?: this.title,
         description = this.description ?: "",
         isCompleted = this.completed,
         isAdditional = this.additional,
-        completedAt = this.completedAt
+        completedAt = this.completedAt,
+        completedById = this.completedById,
+        completedByName = this.completedBy?.name,
+        masterTaskId = this.masterTaskId,
+        taskLabel = this.taskLabel,
+        displayOrder = this.displayOrder,
+        createdAt = this.createdAt
     )
 
     private fun AdditionalWorkDto.toDomainModel(): AdditionalWorkItem = AdditionalWorkItem(
         id = this.id.toString(),
         workId = this.workId.toString(),
-        description = this.description,
+        description = this.taskLabel?.ifBlank { this.description } ?: this.description,
+        masterTaskId = this.masterTaskId,
+        taskLabel = this.taskLabel,
+        createdById = this.createdById,
         createdByName = this.createdBy?.name ?: "",
         createdAt = this.createdAt ?: ""
+    )
+
+    private fun MasterTaskDto.toDomainModel(): MasterTask = MasterTask(
+        id = this.id,
+        taskLabel = this.taskLabel,
+        category = this.category ?: "GENERAL",
+        displayOrder = this.displayOrder,
+        isActive = this.isActive
     )
 
     private fun String.toWorkStatus(): WorkStatus = when (this) {
@@ -758,7 +733,11 @@ class WorkRepository(
         }
         val fullPhotoUrl = if (this.photoUrl != null) {
             if (this.photoUrl.startsWith("http")) this.photoUrl
-            else BuildConfig.SUPABASE_URL.trimEnd('/') + if (this.photoUrl.startsWith("/")) this.photoUrl else "/${this.photoUrl}"
+            else {
+                val prefix = if (this.photoUrl.startsWith("/storage/v1")) "" else "/storage/v1"
+                val normPath = if (this.photoUrl.startsWith("/")) this.photoUrl else "/${this.photoUrl}"
+                BuildConfig.SUPABASE_URL.trimEnd('/') + prefix + normPath
+            }
         } else null
 
         return WorkPhoto(

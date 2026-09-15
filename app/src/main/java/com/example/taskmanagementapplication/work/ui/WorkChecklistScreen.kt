@@ -72,12 +72,16 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.SuggestionChip
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.taskmanagementapplication.core.model.ChecklistItem
+import com.example.taskmanagementapplication.core.model.MasterTask
 import com.example.taskmanagementapplication.core.theme.AccentOrange
 import com.example.taskmanagementapplication.core.theme.PrimaryLight
 import com.example.taskmanagementapplication.core.theme.StatusCompleted
@@ -101,6 +105,10 @@ fun WorkChecklistScreen(
     var itemToDelete by remember { mutableStateOf<ChecklistItem?>(null) }
 
     // Computations
+    val masterTasks by workViewModel.masterTasks.collectAsStateWithLifecycle()
+    val availableMasterTasks = remember(work, masterTasks) {
+        workViewModel.getAvailableAdditionalTasks(work)
+    }
     val predefinedItems = workViewModel.getPredefinedItems(work)
     val additionalItems = workViewModel.getAdditionalItems(work)
     val predefinedCompleted = workViewModel.getPredefinedCompletedCount(work)
@@ -422,6 +430,7 @@ fun WorkChecklistScreen(
     if (showAddEditSheet) {
         AddEditAdditionalWorkBottomSheet(
             existingItem = editingItem,
+            availableMasterTasks = availableMasterTasks,
             onDismiss = { showAddEditSheet = false },
             onSave = { title, description ->
                 if (editingItem != null) {
@@ -430,9 +439,15 @@ fun WorkChecklistScreen(
                         scope.launch { snackbarHostState.showSnackbar("Additional work updated") }
                     }
                 } else {
-                    val success = workViewModel.addAdditionalWork(title, description)
-                    if (success) {
-                        scope.launch { snackbarHostState.showSnackbar("Additional work added") }
+                    val matchingMaster = availableMasterTasks.find { it.taskLabel.equals(title.trim(), ignoreCase = true) }
+                    if (matchingMaster != null) {
+                        workViewModel.addAdditionalMasterTask(matchingMaster)
+                        scope.launch { snackbarHostState.showSnackbar("Additional work recorded: ${matchingMaster.taskLabel}") }
+                    } else {
+                        val success = workViewModel.addAdditionalWork(title, description)
+                        if (success) {
+                            scope.launch { snackbarHostState.showSnackbar("Additional work added") }
+                        }
                     }
                 }
                 showAddEditSheet = false
@@ -772,6 +787,7 @@ private fun AdditionalWorkItemCard(
 @Composable
 fun AddEditAdditionalWorkBottomSheet(
     existingItem: ChecklistItem? = null,
+    availableMasterTasks: List<MasterTask> = emptyList(),
     onDismiss: () -> Unit,
     onSave: (title: String, description: String) -> Unit
 ) {
@@ -801,12 +817,34 @@ fun AddEditAdditionalWorkBottomSheet(
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
-                text = "Describe any work performed outside the standard checklist.",
+                text = "Select an unassigned task from the master list or describe additional work performed.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
-            Spacer(modifier = Modifier.height(20.dp))
+            if (existingItem == null && availableMasterTasks.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    text = "Common Master Tasks (Unassigned):",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = PrimaryLight
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(availableMasterTasks) { mt ->
+                        SuggestionChip(
+                            onClick = {
+                                text = mt.taskLabel
+                                isError = false
+                            },
+                            label = { Text(mt.taskLabel, fontSize = 11.sp) }
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
 
             // Main work title / description field
             OutlinedTextField(

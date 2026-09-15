@@ -104,6 +104,7 @@ data class WorkDto(
     @Json(name = "created_at") val createdAt: String? = null,
     @Json(name = "updated_at") val updatedAt: String? = null,
     @Json(name = "readyForCompletion") val readyForCompletion: Boolean? = null,
+    @Json(name = "google_maps_link") val googleMapsLink: String? = null,
     @Json(name = "serviceBoy") val serviceBoy: UserSummaryDto? = null,
     @Json(name = "poc") val poc: UserSummaryDto? = null,
     @Json(name = "supervisor") val supervisor: UserSummaryDto? = null
@@ -145,6 +146,35 @@ data class StartWorkRequestDto(
 )
 
 // ====================================================================
+// MASTER TASKS DTOs
+// ====================================================================
+
+@JsonClass(generateAdapter = true)
+data class MasterTaskDto(
+    @Json(name = "id") val id: Long,
+    @Json(name = "task_label") val taskLabel: String,
+    @Json(name = "category") val category: String? = "GENERAL",
+    @Json(name = "display_order") val displayOrder: Int = 0,
+    @Json(name = "is_active") val isActive: Boolean = true
+)
+
+@JsonClass(generateAdapter = true)
+data class CreateWorkWithChecklistRpcRequest(
+    @Json(name = "p_title") val title: String,
+    @Json(name = "p_company_name") val companyName: String,
+    @Json(name = "p_address") val address: String,
+    @Json(name = "p_service_boy_id") val serviceBoyId: Long,
+    @Json(name = "p_poc_id") val pocId: Long,
+    @Json(name = "p_supervisor_id") val supervisorId: Long,
+    @Json(name = "p_master_task_ids") val masterTaskIds: List<Long>,
+    @Json(name = "p_scheduled_date") val scheduledDate: String? = null,
+    @Json(name = "p_google_maps_link") val googleMapsLink: String? = null,
+    @Json(name = "p_latitude") val latitude: Double? = null,
+    @Json(name = "p_longitude") val longitude: Double? = null,
+    @Json(name = "p_allowed_radius_meters") val allowedRadiusMeters: Double = 150.0
+)
+
+// ====================================================================
 // CHECKLIST DTOs
 // ====================================================================
 
@@ -158,6 +188,9 @@ data class ChecklistItemDto(
     @Json(name = "is_completed") val completed: Boolean = false,
     @Json(name = "completed_at") val completedAt: String? = null,
     @Json(name = "completed_by_id") val completedById: Long? = null,
+    @Json(name = "completed_by") val completedBy: UserSummaryDto? = null,
+    @Json(name = "master_task_id") val masterTaskId: Long? = null,
+    @Json(name = "task_label") val taskLabel: String? = null,
     @Json(name = "display_order") val displayOrder: Int = 0,
     @Json(name = "created_at") val createdAt: String? = null
 )
@@ -182,6 +215,8 @@ data class AdditionalWorkDto(
     @Json(name = "id") val id: Long,
     @Json(name = "work_id") val workId: Long,
     @Json(name = "description") val description: String,
+    @Json(name = "master_task_id") val masterTaskId: Long? = null,
+    @Json(name = "task_label") val taskLabel: String? = null,
     @Json(name = "client_item_id") val clientItemId: String? = null,
     @Json(name = "created_by_id") val createdById: Long? = null,
     @Json(name = "created_at") val createdAt: String? = null,
@@ -193,6 +228,8 @@ data class AdditionalWorkDto(
 data class CreateAdditionalWorkBody(
     @Json(name = "work_id") val workId: Long,
     @Json(name = "description") val description: String,
+    @Json(name = "master_task_id") val masterTaskId: Long? = null,
+    @Json(name = "task_label") val taskLabel: String? = null,
     @Json(name = "client_item_id") val clientItemId: String? = null,
     @Json(name = "created_by_id") val createdById: Long? = null
 )
@@ -200,8 +237,10 @@ data class CreateAdditionalWorkBody(
 @JsonClass(generateAdapter = true)
 data class AddAdditionalWorkRpcRequest(
     @Json(name = "p_work_id") val workId: Long,
-    @Json(name = "p_description") val description: String,
-    @Json(name = "p_client_item_id") val clientItemId: String? = null
+    @Json(name = "p_description") val description: String? = null,
+    @Json(name = "p_client_item_id") val clientItemId: String? = null,
+    @Json(name = "p_master_task_id") val masterTaskId: Long? = null,
+    @Json(name = "p_task_label") val taskLabel: String? = null
 )
 
 @JsonClass(generateAdapter = true)

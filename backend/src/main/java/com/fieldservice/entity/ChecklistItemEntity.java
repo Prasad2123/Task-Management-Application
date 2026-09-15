@@ -30,6 +30,12 @@ public class ChecklistItemEntity {
     @Column(columnDefinition = "TEXT")
     private String description;
 
+    @Column(name = "master_task_id")
+    private Long masterTaskId;
+
+    @Column(name = "task_label", length = 200)
+    private String taskLabel;
+
     @Column(name = "is_additional", nullable = false)
     @Builder.Default
     private boolean additional = false;

@@ -206,7 +206,17 @@ class WorkViewModelTest {
         val initialWork = viewModel.work.value
         assertFalse(viewModel.isWaitingForReview())
 
-        viewModel.submitWorkForReview()
+        // Incomplete assigned checklist must block submission
+        val submitBlocked = viewModel.submitWorkForReview()
+        assertFalse("Submission must be blocked when assigned checklist is incomplete", submitBlocked)
+        assertEquals("Complete all assigned tasks before submitting.", viewModel.errorMessage.value)
+        assertFalse(viewModel.isWaitingForReview())
+
+        // Complete all assigned checklist items
+        viewModel.work.value.checklist.filter { !it.isCompleted }.forEach { viewModel.toggleChecklistItem(it.id) }
+
+        val submitSuccess = viewModel.submitWorkForReview()
+        assertTrue("Submission should succeed when all assigned checklist items are completed", submitSuccess)
 
         val workAfterSubmit = viewModel.work.value
         assertEquals(com.example.taskmanagementapplication.core.model.WorkStatus.WAITING_FOR_POC_REVIEW, workAfterSubmit.status)
@@ -219,6 +229,7 @@ class WorkViewModelTest {
 
     @Test
     fun testPocApproveWork() {
+        viewModel.work.value.checklist.filter { !it.isCompleted }.forEach { viewModel.toggleChecklistItem(it.id) }
         viewModel.submitWorkForReview()
         assertEquals(com.example.taskmanagementapplication.core.model.WorkStatus.WAITING_FOR_POC_REVIEW, viewModel.work.value.status)
 
@@ -236,6 +247,7 @@ class WorkViewModelTest {
 
     @Test
     fun testPocRejectWork() {
+        viewModel.work.value.checklist.filter { !it.isCompleted }.forEach { viewModel.toggleChecklistItem(it.id) }
         viewModel.submitWorkForReview()
 
         val rejectSuccess = viewModel.rejectByPoc("Safety gear photo is blurry")
@@ -258,6 +270,7 @@ class WorkViewModelTest {
 
     @Test
     fun testSupervisorApproveAndCompleteWork() {
+        viewModel.work.value.checklist.filter { !it.isCompleted }.forEach { viewModel.toggleChecklistItem(it.id) }
         viewModel.submitWorkForReview()
         viewModel.approveByPoc("Amit Kumar")
 

@@ -27,6 +27,12 @@ public class AdditionalWorkEntity {
     @Column(nullable = false, length = 300)
     private String description;
 
+    @Column(name = "master_task_id")
+    private Long masterTaskId;
+
+    @Column(name = "task_label", length = 200)
+    private String taskLabel;
+
     @Column(name = "client_item_id", length = 64)
     private String clientItemId;
 

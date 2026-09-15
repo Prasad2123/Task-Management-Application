@@ -20,6 +20,7 @@ import com.example.taskmanagementapplication.review.ui.PocReviewScreen
 import com.example.taskmanagementapplication.review.ui.SupervisorReviewScreen
 import com.example.taskmanagementapplication.splash.SplashScreen
 import com.example.taskmanagementapplication.work.ui.ApprovalStatusScreen
+import com.example.taskmanagementapplication.work.ui.CompleteAndSubmitScreen
 import com.example.taskmanagementapplication.work.ui.CompleteWorkScreen
 import com.example.taskmanagementapplication.work.ui.WorkCompletedScreen
 import com.example.taskmanagementapplication.work.ui.WorkReportScreen
@@ -120,9 +121,13 @@ fun AppNavHost(
         }
 
         composable(Routes.WORK_DETAILS) {
+            val currentUser by authViewModel.currentUser.collectAsStateWithLifecycle()
             WorkDetailsScreen(
                 onBack = { navController.popBackStack() },
                 onStartWork = {
+                    if (currentUser?.role != UserRole.SERVICE_BOY && currentUser?.role != null) {
+                        return@WorkDetailsScreen
+                    }
                     val status = workViewModel.work.value.status
                     when {
                         workViewModel.isCompleted() -> {
@@ -144,6 +149,7 @@ fun AppNavHost(
                 },
                 onViewLocation = { navController.navigate(Routes.WORK_LOCATION) },
                 onViewReport = { navController.navigate(Routes.WORK_REPORT) },
+                userRole = currentUser?.role,
                 workViewModel = workViewModel
             )
         }
@@ -166,12 +172,26 @@ fun AppNavHost(
                 onViewDetails = { navController.navigate(Routes.WORK_DETAILS) },
                 onViewChecklist = { navController.navigate(Routes.WORK_CHECKLIST) },
                 onAddPhotos = { navController.navigate(Routes.WORK_PHOTOS) },
+                onNavigateToCompleteAndSubmit = { navController.navigate(Routes.COMPLETE_AND_SUBMIT) },
                 onSubmitForReview = {
                     workViewModel.submitWorkForReview()
                     navController.navigate(Routes.APPROVAL_STATUS)
                 },
                 onViewApprovalStatus = { navController.navigate(Routes.APPROVAL_STATUS) },
                 onProceedToComplete = { navController.navigate(Routes.COMPLETE_WORK) },
+                workViewModel = workViewModel
+            )
+        }
+
+        composable(Routes.COMPLETE_AND_SUBMIT) {
+            CompleteAndSubmitScreen(
+                onBack = { navController.popBackStack() },
+                onSubmitSuccess = {
+                    navController.navigate(Routes.APPROVAL_STATUS) {
+                        popUpTo(Routes.SERVICE_HOME)
+                    }
+                },
+                onManagePhotos = { navController.navigate(Routes.WORK_PHOTOS) },
                 workViewModel = workViewModel
             )
         }
