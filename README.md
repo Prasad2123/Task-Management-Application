@@ -27,7 +27,7 @@
   <b>Empowering Admins, Field Technicians, Client POCs, and Site Supervisors through real-time operational sync, location validation, verifiable photo evidence, cryptographic approvals, and immutable audit logs.</b>
 </p>
 
-[Overview](#-overview) • [Key Features](#-key-features) • [Lifecycle & Workflows](#-task-lifecycle--approval-workflow) • [Supervisor Web Architecture](#-secure-supervisor-approval-architecture) • [Role Matrix](#-role-based-matrix) • [Demo Accounts](#-demo-accounts) • [Architecture](#-tech-stack--architecture) • [Getting Started](#-getting-started) • [Tests](#-running-tests)
+[Overview](#-overview) • [Key Features](#-key-features) • [Lifecycle & Workflows](#-task-lifecycle--approval-workflow) • [Supervisor Web Portal](#-supervisor-web-approval-portal) • [Supervisor Web Architecture](#-secure-supervisor-approval-architecture) • [Role Matrix](#-role-based-matrix) • [Demo Accounts](#-demo-accounts) • [Architecture](#-tech-stack--architecture) • [Getting Started](#-getting-started) • [Tests](#-running-tests)
 
 ---
 
@@ -104,38 +104,94 @@ $$\text{Admin} \xrightarrow{\text{Work Creation}} \text{Technician} \xrightarrow
 
 ```mermaid
 flowchart TD
-    A([📅 Admin Creates Work]) -->|Selects Company & Master Tasks| B[📍 Service Boy Navigates to Site]
-    B -->|GPS Radius Check| C{📍 Location Verified?}
-    C -- "❌ Outside Radius" --> B
-    C -- "✅ Inside Radius" --> D[▶️ Swipe to Start Work]
-    
-    D --> E[📋 Execute Checklist & Log Additional Work]
-    E --> F[📸 Capture & Upload Photo Evidence]
-    F --> G[📤 Swipe to Submit for Review]
-    
-    G --> H{🏢 Client POC Review}
-    H -- "❌ POC Rejection" --> I[🔁 Revisions Requested]
-    I --> D
-    H -- "✅ POC Approval" --> J[🔐 Supabase Generates 256-Bit Cryptographic Token]
-    
-    J --> K[📱 POC Receives & Shares Netlify Approval URL]
-    K --> L{🌐 Site Supervisor Web Portal Decision}
-    L -- "❌ Supervisor Rejection" --> I
-    L -- "✅ Supervisor Sign-Off" --> M[✓ Both Approved: Ready for Completion]
-    
-    M --> N[🎉 Service Boy Completes Work]
-    N --> O([📄 Generate Authoritative Certified PDF Report])
-
-    style A fill:#2563EB,stroke:#1D4ED8,color:#FFFFFF
-    style D fill:#0284C7,stroke:#0369A1,color:#FFFFFF
-    style H fill:#F59E0B,stroke:#D97706,color:#FFFFFF
-    style J fill:#4F46E5,stroke:#4338CA,color:#FFFFFF
-    style K fill:#25D366,stroke:#128C7E,color:#FFFFFF
-    style L fill:#8B5CF6,stroke:#7C3AED,color:#FFFFFF
-    style I fill:#EF4444,stroke:#DC2626,color:#FFFFFF
-    style M fill:#059669,stroke:#047857,color:#FFFFFF
-    style O fill:#16A34A,stroke:#15803D,color:#FFFFFF
+    A[Admin Creates Work] --> B[Service Boy Receives Assignment]
+    B --> C[Service Boy Reaches Location]
+    C --> D[Start Work + Server Timestamp]
+    D --> E[Checklist + Photo Evidence]
+    E --> F[Additional Work if Required]
+    F --> G[Complete Work]
+    G --> H[Submit for POC Review]
+    H --> I[POC Reviews in Android]
+    I --> J{POC Decision}
+    J -->|Reject| K[Returned for Correction]
+    J -->|Approve| L[Secure Supervisor Web Request]
+    L --> M[Supervisor Opens Secure Link]
+    M --> N[Supervisor Reviews Evidence]
+    N --> O{Supervisor Decision}
+    O -->|Reject| P[Supervisor Rejection Recorded]
+    O -->|Approve| Q[Final Approval Recorded]
+    Q --> R[Final Work Report]
 ```
+
+---
+
+## 🌐 Supervisor Web Approval Portal
+
+The application uses a separate secure web portal for Site Supervisor approval, completely decoupling administrative governance and sign-off from mobile client installations.
+
+### Approval Workflow
+
+```
+Service Boy
+   ↓
+Work Completed
+   ↓
+POC Review
+   ↓
+POC Approval
+   ↓
+Secure Web Approval Request
+   ↓
+Site Supervisor receives secure approval link
+   ↓
+Supervisor opens link in any browser/device
+   ↓
+Reviews work evidence
+   ↓
+Approve / Reject
+   ↓
+Final authoritative status + report
+```
+
+### Key Architectural & Security Specifications
+
+- **Zero Mobile App Dependency**: Site Supervisors do **NOT** use the Android application for final approval.
+- **Standalone Web Portal**: Supervisor approval is performed exclusively through the standalone web portal.
+- **No Mobile Login Required**: No Supervisor mobile login or account credentials are required.
+- **Secure Random Token**: The approval link contains a secure random 256-bit token (`https://taskmanagementwebsite1.netlify.app/approve/<SECURE_TOKEN>`).
+- **Cryptographic Hash Storage**: The raw token is never stored directly in the database; the backend stores a SHA-256 hash of the token (`token_hash`).
+- **Strict Token Expiry**: Every approval request has an automatic 7-day expiration window.
+- **Server-Side Token Validation**: The portal validates the token via PostgreSQL stored procedure (`verify_supervisor_web_token`) before exposing any work information.
+- **Server-Side Recorded Decisions**: Supervisor decisions are recorded server-side via atomic database RPCs (`supervisor_web_decision`).
+- **Comprehensive Review Suite**: The portal provides access to:
+  - **Work & Location**: Work title, scheduled date, company name, address, and GPS coordinates.
+  - **Personnel**: Service Boy, Client POC, and Site Supervisor identities.
+  - **POC Approval**: Verified POC approval status and exact timestamp.
+  - **Checklist**: Mandatory task execution and completion statuses.
+  - **Additional Work**: Out-of-scope work logged with descriptions and categories.
+  - **Activity Timeline**: Full chronological audit trail of events.
+  - **Photo Evidence**: High-resolution before/after and inspection photos.
+- **Secure Photo Storage**: Photo evidence uses secure/private storage access via token-authorized access grants (`supervisor_photo_access_grants`).
+- **Authoritative Audit Trail**: Supervisor approval/rejection becomes part of the authoritative, immutable audit trail (`public.activity_events`).
+
+### 🔗 Web Portal Repository
+
+[Task Management Website](https://github.com/Prasad2123/Task-Management-Website)
+
+**Technology**:
+- React
+- TypeScript
+- Vite
+- Supabase
+- Tailwind CSS
+- React Router
+- TanStack Query
+- Lucide Icons
+- Framer Motion
+
+**Production**:
+- **Production Website**: [Open Supervisor Approval Portal](https://taskmanagementwebsite1.netlify.app/)
+- **Approval URL Pattern**: `https://taskmanagementwebsite1.netlify.app/approve/<SECURE_TOKEN>`
 
 ---
 
@@ -183,6 +239,15 @@ sequenceDiagram
 ---
 
 ## 👥 Role-Based Matrix
+
+| Role | Platform | Responsibilities |
+|------|----------|------------------|
+| Admin | Android | Create and manage work |
+| Service Boy | Android | Execute assigned work, checklist, photos, completion |
+| POC | Android | Review submitted work and approve/reject |
+| Site Supervisor | Web Portal | Final approval/rejection through secure link |
+
+### Detailed Capabilities Comparison
 
 | Feature / Capability | 👨‍💼 Admin | 👷 Service Boy | 🏢 Client POC | 🌐 Site Supervisor |
 |:---|:---:|:---:|:---:|:---:|
@@ -353,9 +418,10 @@ TaskManagementApplication/
 * **Package Manager**: npm or pnpm
 
 #### Steps
-1. **Navigate to Web Project Directory**:
+1. **Clone or Navigate to Web Portal Directory**:
    ```bash
-   cd "D:\Task Mangement Website"
+   git clone https://github.com/Prasad2123/Task-Management-Website.git
+   cd Task-Management-Website
    ```
 2. **Install Dependencies**:
    ```bash
@@ -388,7 +454,7 @@ Assemble production debug APK:
 ### Supervisor Web Portal Tests
 Run the Vitest test suites verifying date formatting (`Asia/Kolkata`), distance utilities, and notification payloads:
 ```powershell
-cd "D:\Task Mangement Website"
+cd Task-Management-Website
 npm test
 ```
 
