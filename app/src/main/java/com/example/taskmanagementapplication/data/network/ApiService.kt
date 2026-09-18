@@ -48,10 +48,7 @@ interface ApiService {
     suspend fun submitForReview(@Body request: WorkIdRpcRequest): Response<WorkDto>
 
     @POST("rest/v1/rpc/poc_decision")
-    suspend fun pocDecision(@Body request: PocDecisionRpcRequest): Response<ApprovalDto>
-
-    @POST("rest/v1/rpc/supervisor_decision")
-    suspend fun supervisorDecision(@Body request: SupervisorDecisionRpcRequest): Response<ApprovalDto>
+    suspend fun pocDecision(@Body request: PocDecisionRpcRequest): Response<PocDecisionResponseDto>
 
     @POST("rest/v1/rpc/complete_work")
     suspend fun completeWork(@Body request: WorkIdRpcRequest): Response<WorkDto>
@@ -71,6 +68,15 @@ interface ApiService {
         @Query("is_active") activeOnly: String = "eq.true",
         @Query("order") order: String = "display_order.asc"
     ): Response<List<MasterTaskDto>>
+
+    // ====================================================================
+    // COMPANIES MASTER
+    // ====================================================================
+
+    @GET("rest/v1/companies")
+    suspend fun getCompanies(
+        @Query("order") order: String = "id.asc"
+    ): Response<List<CompanyDto>>
 
     // ====================================================================
     // CHECKLIST ITEMS
@@ -131,6 +137,13 @@ interface ApiService {
         @Query("work_id") workIdFilter: String
     ): Response<List<ApprovalDto>>
 
+    @GET("rest/v1/supervisor_web_approval_requests")
+    suspend fun getSupervisorWebRequest(
+        @Query("work_id") workIdFilter: String,
+        @Query("order") order: String = "created_at.desc",
+        @Query("limit") limit: Int = 1
+    ): Response<List<SupervisorWebRequestDto>>
+
     // ====================================================================
     // ACTIVITY TIMELINE
     // ====================================================================
@@ -138,7 +151,7 @@ interface ApiService {
     @GET("rest/v1/activity_events")
     suspend fun getActivity(
         @Query("work_id") workIdFilter: String,
-        @Query("order") order: String = "event_timestamp.desc"
+        @Query("order") order: String = "event_timestamp.asc"
     ): Response<List<ActivityEventDto>>
 
     // ====================================================================

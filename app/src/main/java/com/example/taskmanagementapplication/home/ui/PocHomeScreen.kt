@@ -440,7 +440,7 @@ fun PocHomeScreen(
                                             color = StatusCompleted
                                         )
                                         Text(
-                                            text = "Forwarded to Supervisor for final sign-off",
+                                            text = "Supervisor Web Approval Request sent",
                                             style = MaterialTheme.typography.bodySmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )

@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.taskmanagementapplication.auth.viewmodel.AuthViewModel
+import com.example.taskmanagementapplication.core.model.Company
 import com.example.taskmanagementapplication.core.model.MasterTask
 import com.example.taskmanagementapplication.core.model.Work
 import com.example.taskmanagementapplication.core.model.WorkStatus
@@ -66,6 +67,7 @@ fun AdminDashboardScreen(
     val predefinedWorks by workViewModel.predefinedWorks.collectAsStateWithLifecycle()
     val masterTasks by workViewModel.masterTasks.collectAsStateWithLifecycle()
     val availableUsers by workViewModel.availableUsers.collectAsStateWithLifecycle()
+    val companies by workViewModel.companies.collectAsStateWithLifecycle()
     val isSubmitting by workViewModel.isSubmitting.collectAsStateWithLifecycle()
     val isLoading by workViewModel.isLoading.collectAsStateWithLifecycle()
 
@@ -77,27 +79,33 @@ fun AdminDashboardScreen(
         workViewModel.loadMyWork()
         workViewModel.loadMasterTasks()
         workViewModel.loadUsers()
+        workViewModel.loadCompanies()
     }
 
     val filteredWorks = remember(predefinedWorks, searchQuery, selectedTab) {
-        predefinedWorks.filter { work ->
-            val matchesQuery = searchQuery.isBlank() ||
-                    work.title.contains(searchQuery, ignoreCase = true) ||
-                    work.companyName.contains(searchQuery, ignoreCase = true) ||
-                    work.serviceBoyName.contains(searchQuery, ignoreCase = true)
+        predefinedWorks
+            .sortedWith(
+                compareByDescending<Work> { it.createdAt ?: "" }
+                    .thenByDescending { it.backendId ?: (it.id.toLongOrNull() ?: 0L) }
+            )
+            .filter { work ->
+                val matchesQuery = searchQuery.isBlank() ||
+                        work.title.contains(searchQuery, ignoreCase = true) ||
+                        work.companyName.contains(searchQuery, ignoreCase = true) ||
+                        work.serviceBoyName.contains(searchQuery, ignoreCase = true)
 
-            val matchesTab = when (selectedTab) {
-                AdminFilterTab.ALL -> true
-                AdminFilterTab.IN_PROGRESS -> work.status == WorkStatus.IN_PROGRESS || work.status == WorkStatus.WORK_STARTED
-                AdminFilterTab.IN_REVIEW -> work.status == WorkStatus.WAITING_FOR_POC_REVIEW ||
-                        work.status == WorkStatus.WAITING_FOR_SUPERVISOR_REVIEW ||
-                        work.status == WorkStatus.WAITING_FOR_REVIEW
-                AdminFilterTab.APPROVED -> work.status == WorkStatus.APPROVED
-                AdminFilterTab.COMPLETED -> work.status == WorkStatus.COMPLETED
+                val matchesTab = when (selectedTab) {
+                    AdminFilterTab.ALL -> true
+                    AdminFilterTab.IN_PROGRESS -> work.status == WorkStatus.IN_PROGRESS || work.status == WorkStatus.WORK_STARTED
+                    AdminFilterTab.IN_REVIEW -> work.status == WorkStatus.WAITING_FOR_POC_REVIEW ||
+                            work.status == WorkStatus.WAITING_FOR_SUPERVISOR_REVIEW ||
+                            work.status == WorkStatus.WAITING_FOR_REVIEW
+                    AdminFilterTab.APPROVED -> work.status == WorkStatus.APPROVED
+                    AdminFilterTab.COMPLETED -> work.status == WorkStatus.COMPLETED
+                }
+
+                matchesQuery && matchesTab
             }
-
-            matchesQuery && matchesTab
-        }
     }
 
     Scaffold(
@@ -132,8 +140,10 @@ fun AdminDashboardScreen(
         floatingActionButton = {
             ExtendedFloatingActionButton(
                 onClick = {
+                    workViewModel.loadMyWork()
                     workViewModel.loadMasterTasks()
                     workViewModel.loadUsers()
+                    workViewModel.loadCompanies()
                     showCreateWorkSheet = true
                 },
                 icon = { Icon(Icons.Default.Add, contentDescription = null) },
@@ -332,11 +342,16 @@ fun AdminDashboardScreen(
 
     if (showCreateWorkSheet) {
         CreateWorkBottomSheet(
+            companies = companies,
             masterTasks = masterTasks,
             availableUsers = availableUsers,
             isSubmitting = isSubmitting,
             workViewModel = workViewModel,
-            onDismiss = { showCreateWorkSheet = false },
+            onDismiss = {
+                showCreateWorkSheet = false
+                workViewModel.loadMyWork()
+                workViewModel.loadUsers()
+            },
             onCreateWork = { companyName, address, latitude, longitude, googleMapsLink, serviceBoyId, pocId, supervisorId, masterTaskIds, scheduledDate ->
                 workViewModel.createWorkWithChecklist(
                     companyName = companyName,
@@ -351,6 +366,8 @@ fun AdminDashboardScreen(
                     googleMapsLink = googleMapsLink
                 ) {
                     showCreateWorkSheet = false
+                    workViewModel.loadMyWork()
+                    workViewModel.loadUsers()
                 }
             }
         )
@@ -778,6 +795,7 @@ private fun AdminPersonnelItem(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun CreateWorkBottomSheet(
+    companies: List<Company>,
     masterTasks: List<MasterTask>,
     availableUsers: List<UserProfileDto>,
     isSubmitting: Boolean,
@@ -801,12 +819,13 @@ private fun CreateWorkBottomSheet(
         SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
     }
 
-    var companyName by remember { mutableStateOf("") }
-    var address by remember { mutableStateOf("Plot 42, Sector 5, Ratnagiri District, Maharashtra 415612") }
-    var latitudeText by remember { mutableStateOf("17.5230403") }
-    var longitudeText by remember { mutableStateOf("73.5378423") }
-    var googleMapsLink by remember { mutableStateOf("https://maps.app.goo.gl/i7Dy6g1EF9dq3X9Z6") }
-    var isMapsLinkManuallyEdited by remember { mutableStateOf(false) }
+    var selectedCompany by remember { mutableStateOf<Company?>(null) }
+    var companyDropdownExpanded by remember { mutableStateOf(false) }
+
+    var address by remember { mutableStateOf("") }
+    var latitudeText by remember { mutableStateOf("") }
+    var longitudeText by remember { mutableStateOf("") }
+    var googleMapsLink by remember { mutableStateOf("") }
     var scheduledDate by remember { mutableStateOf(today) }
 
     val serviceBoys = remember(availableUsers) {
@@ -819,14 +838,10 @@ private fun CreateWorkBottomSheet(
         availableUsers.filter { it.role.equals("SUPERVISOR", ignoreCase = true) }
     }
 
-    // Find the first free service boy if available
-    val firstFreeServiceBoy = remember(serviceBoys, workViewModel.predefinedWorks.collectAsStateWithLifecycle().value) {
-        serviceBoys.firstOrNull { workViewModel.isServiceBoyFree(it.id) }
-    }
+    // Technician selection: initially unselected as per requirement 9
+    var selectedServiceBoyId by remember { mutableStateOf<Long?>(null) }
+    var techDropdownExpanded by remember { mutableStateOf(false) }
 
-    var selectedServiceBoyId by remember(firstFreeServiceBoy) {
-        mutableStateOf(firstFreeServiceBoy?.id ?: (serviceBoys.firstOrNull()?.id ?: 1L))
-    }
     var selectedPocId by remember(pocs) {
         mutableStateOf(pocs.firstOrNull()?.id ?: 2L)
     }
@@ -840,18 +855,19 @@ private fun CreateWorkBottomSheet(
     }
 
     var companyError by remember { mutableStateOf(false) }
-    var addressError by remember { mutableStateOf(false) }
+    var technicianError by remember { mutableStateOf(false) }
 
-    // Coordinates parsing & validation
-    val lat = latitudeText.toDoubleOrNull()
-    val lng = longitudeText.toDoubleOrNull()
-    val isLatValid = lat != null && lat in -90.0..90.0
-    val isLngValid = lng != null && lng in -180.0..180.0
-    val areCoordsValid = isLatValid && isLngValid
-
-    // Service boy availability check
-    val isSelectedServiceBoyFree = workViewModel.isServiceBoyFree(selectedServiceBoyId)
+    val selectedServiceBoy = serviceBoys.find { it.id == selectedServiceBoyId }
+    val isSelectedServiceBoyFree = selectedServiceBoyId != null && workViewModel.isServiceBoyFree(selectedServiceBoyId!!)
     val anyFreeServiceBoy = serviceBoys.any { workViewModel.isServiceBoyFree(it.id) }
+
+    val selectedTechText = if (selectedServiceBoy != null) {
+        val techName = selectedServiceBoy.name.ifBlank { selectedServiceBoy.email }
+        val statusText = if (isSelectedServiceBoyFree) "FREE" else "BUSY"
+        "$techName — $statusText"
+    } else {
+        ""
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -892,50 +908,93 @@ private fun CreateWorkBottomSheet(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Company Name (Required)
+            // ── COMPANY NAME DROPDOWN (Required) ──
             Text("Company Name *", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
             Spacer(modifier = Modifier.height(6.dp))
-            OutlinedTextField(
-                value = companyName,
-                onValueChange = {
-                    companyName = it
-                    if (it.isNotBlank()) companyError = false
-                },
-                modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("e.g. ABC Industrial Services") },
-                isError = companyError,
-                singleLine = true,
-                shape = RoundedCornerShape(12.dp)
-            )
+
+            ExposedDropdownMenuBox(
+                expanded = companyDropdownExpanded,
+                onExpandedChange = { companyDropdownExpanded = it },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                OutlinedTextField(
+                    value = selectedCompany?.companyName ?: "",
+                    onValueChange = {},
+                    readOnly = true,
+                    modifier = Modifier
+                        .menuAnchor()
+                        .fillMaxWidth(),
+                    placeholder = { Text("Select Company ▼") },
+                    trailingIcon = {
+                        ExposedDropdownMenuDefaults.TrailingIcon(expanded = companyDropdownExpanded)
+                    },
+                    isError = companyError,
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp)
+                )
+
+                ExposedDropdownMenu(
+                    expanded = companyDropdownExpanded,
+                    onDismissRequest = { companyDropdownExpanded = false }
+                ) {
+                    companies.forEach { comp ->
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    text = comp.companyName,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = if (selectedCompany?.id == comp.id) FontWeight.Bold else FontWeight.Normal
+                                )
+                            },
+                            onClick = {
+                                selectedCompany = comp
+                                address = comp.address
+                                latitudeText = comp.latitude.toString()
+                                longitudeText = comp.longitude.toString()
+                                googleMapsLink = "https://www.google.com/maps?q=${comp.latitude},${comp.longitude}"
+                                companyError = false
+                                companyDropdownExpanded = false
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.Business,
+                                    contentDescription = null,
+                                    tint = if (selectedCompany?.id == comp.id) PrimaryLight else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        )
+                    }
+                }
+            }
             if (companyError) {
-                Text("Company Name is required", color = ErrorRed, style = MaterialTheme.typography.labelSmall)
+                Text("Company selection is required", color = ErrorRed, style = MaterialTheme.typography.labelSmall)
             }
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            // Location / Site Address (Required)
-            Text("Location / Site Address *", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+            // ── COMPANY ADDRESS (AUTO-FILLED) ──
+            Text("Company Address", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
             Spacer(modifier = Modifier.height(6.dp))
             OutlinedTextField(
                 value = address,
-                onValueChange = {
-                    address = it
-                    if (it.isNotBlank()) addressError = false
-                },
+                onValueChange = {},
+                readOnly = true,
                 modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("e.g. Plot No. 45, Industrial Estate, Andheri East, Mumbai") },
-                isError = addressError,
+                placeholder = { Text("Select a company first") },
                 maxLines = 2,
-                shape = RoundedCornerShape(12.dp)
+                shape = RoundedCornerShape(12.dp),
+                supportingText = {
+                    if (selectedCompany != null) {
+                        Text("Testing address automatically populated", color = StatusCompleted, style = MaterialTheme.typography.labelSmall)
+                    }
+                }
             )
-            if (addressError) {
-                Text("Location is required", color = ErrorRed, style = MaterialTheme.typography.labelSmall)
-            }
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            // Coordinates (Latitude & Longitude)
-            Text("Coordinates *", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+            // ── COORDINATES (AUTO-ASSOCIATED WITH SELECTED COMPANY) ──
+            Text("Coordinates", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
             Spacer(modifier = Modifier.height(6.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -943,64 +1002,38 @@ private fun CreateWorkBottomSheet(
             ) {
                 OutlinedTextField(
                     value = latitudeText,
-                    onValueChange = {
-                        latitudeText = it
-                        val newLat = it.toDoubleOrNull()
-                        val newLng = longitudeText.toDoubleOrNull()
-                        if (!isMapsLinkManuallyEdited && newLat != null && newLng != null && newLat in -90.0..90.0 && newLng in -180.0..180.0) {
-                            googleMapsLink = "https://www.google.com/maps?q=$newLat,$newLng"
-                        }
-                    },
+                    onValueChange = {},
+                    readOnly = true,
                     modifier = Modifier.weight(1f),
-                    label = { Text("Latitude (-90 to 90)") },
+                    label = { Text("Latitude") },
                     placeholder = { Text("17.5230403") },
-                    isError = latitudeText.isNotBlank() && !isLatValid,
                     singleLine = true,
                     shape = RoundedCornerShape(12.dp)
                 )
 
                 OutlinedTextField(
                     value = longitudeText,
-                    onValueChange = {
-                        longitudeText = it
-                        val newLat = latitudeText.toDoubleOrNull()
-                        val newLng = it.toDoubleOrNull()
-                        if (!isMapsLinkManuallyEdited && newLat != null && newLng != null && newLat in -90.0..90.0 && newLng in -180.0..180.0) {
-                            googleMapsLink = "https://www.google.com/maps?q=$newLat,$newLng"
-                        }
-                    },
+                    onValueChange = {},
+                    readOnly = true,
                     modifier = Modifier.weight(1f),
-                    label = { Text("Longitude (-180 to 180)") },
+                    label = { Text("Longitude") },
                     placeholder = { Text("73.5378423") },
-                    isError = longitudeText.isNotBlank() && !isLngValid,
                     singleLine = true,
                     shape = RoundedCornerShape(12.dp)
                 )
             }
 
-            if ((latitudeText.isNotBlank() || longitudeText.isNotBlank()) && !areCoordsValid) {
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "Invalid coordinates. Latitude (-90 to 90), Longitude (-180 to 180).",
-                    color = ErrorRed,
-                    style = MaterialTheme.typography.labelSmall
-                )
-            }
-
             Spacer(modifier = Modifier.height(14.dp))
 
-            // Google Maps Link (Required)
-            Text("Google Maps Link *", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+            // ── GOOGLE MAPS LINK (AUTO-GENERATED) ──
+            Text("Google Maps Link", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
             Spacer(modifier = Modifier.height(6.dp))
             OutlinedTextField(
                 value = googleMapsLink,
-                onValueChange = {
-                    googleMapsLink = it
-                    isMapsLinkManuallyEdited = true
-                },
+                onValueChange = {},
+                readOnly = true,
                 modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("https://maps.app.goo.gl/i7Dy6g1EF9dq3X9Z6") },
-                isError = googleMapsLink.isBlank(),
+                placeholder = { Text("Auto-generated from coordinates") },
                 singleLine = true,
                 shape = RoundedCornerShape(12.dp)
             )
@@ -1027,17 +1060,11 @@ private fun CreateWorkBottomSheet(
             Text("Assign Personnel", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
             Spacer(modifier = Modifier.height(10.dp))
 
-            // Service Boy selection with FREE / BUSY status
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("Service Boy (Only FREE technicians selectable)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
+            // Technician selection with FREE / BUSY status
+            Text("Technician *", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
             Spacer(modifier = Modifier.height(6.dp))
 
-            if (!anyFreeServiceBoy) {
+            if (!anyFreeServiceBoy && serviceBoys.isNotEmpty()) {
                 Surface(
                     shape = RoundedCornerShape(10.dp),
                     color = ErrorRed.copy(alpha = 0.1f),
@@ -1058,14 +1085,110 @@ private fun CreateWorkBottomSheet(
                 Spacer(modifier = Modifier.height(8.dp))
             }
 
-            ServiceBoySelectorRow(
-                options = serviceBoys.ifEmpty {
-                    listOf(UserProfileDto(id = 1L, name = "Rahul Patil", email = "service@demo.com", role = "SERVICE_BOY"))
-                },
-                selectedId = selectedServiceBoyId,
-                workViewModel = workViewModel,
-                onSelect = { selectedServiceBoyId = it }
-            )
+            ExposedDropdownMenuBox(
+                expanded = techDropdownExpanded,
+                onExpandedChange = { techDropdownExpanded = it },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                OutlinedTextField(
+                    value = selectedTechText,
+                    onValueChange = {},
+                    readOnly = true,
+                    modifier = Modifier
+                        .menuAnchor()
+                        .fillMaxWidth(),
+                    placeholder = { Text("Select Technician ▼") },
+                    trailingIcon = {
+                        ExposedDropdownMenuDefaults.TrailingIcon(expanded = techDropdownExpanded)
+                    },
+                    leadingIcon = if (selectedServiceBoy != null) {
+                        {
+                            Icon(
+                                imageVector = if (isSelectedServiceBoyFree) Icons.Default.CheckCircle else Icons.Default.Cancel,
+                                contentDescription = null,
+                                tint = if (isSelectedServiceBoyFree) StatusCompleted else ErrorRed,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    } else null,
+                    isError = technicianError,
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp)
+                )
+
+                ExposedDropdownMenu(
+                    expanded = techDropdownExpanded,
+                    onDismissRequest = { techDropdownExpanded = false }
+                ) {
+                    if (serviceBoys.isEmpty()) {
+                        DropdownMenuItem(
+                            text = { Text("No technicians available", style = MaterialTheme.typography.bodyMedium) },
+                            onClick = { techDropdownExpanded = false },
+                            enabled = false
+                        )
+                    } else {
+                        serviceBoys.forEach { tech ->
+                            val isFree = workViewModel.isServiceBoyFree(tech.id)
+                            val techName = tech.name.ifBlank { tech.email }
+
+                            DropdownMenuItem(
+                                text = {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = techName,
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                fontWeight = if (tech.id == selectedServiceBoyId) FontWeight.Bold else FontWeight.Normal,
+                                                color = if (isFree) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                            )
+                                            Text(
+                                                text = tech.email,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                            )
+                                        }
+                                        Surface(
+                                            shape = RoundedCornerShape(6.dp),
+                                            color = if (isFree) StatusCompleted.copy(alpha = 0.15f) else ErrorRed.copy(alpha = 0.15f)
+                                        ) {
+                                            Text(
+                                                text = if (isFree) "FREE" else "BUSY",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.Bold,
+                                                color = if (isFree) StatusCompleted else ErrorRed,
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                            )
+                                        }
+                                    }
+                                },
+                                onClick = {
+                                    if (isFree) {
+                                        selectedServiceBoyId = tech.id
+                                        technicianError = false
+                                        techDropdownExpanded = false
+                                    }
+                                },
+                                enabled = isFree,
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = if (isFree) Icons.Default.CheckCircle else Icons.Default.Cancel,
+                                        contentDescription = null,
+                                        tint = if (isFree) StatusCompleted else ErrorRed,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+            if (technicianError) {
+                Text("Technician selection is required", color = ErrorRed, style = MaterialTheme.typography.labelSmall)
+            }
 
             Spacer(modifier = Modifier.height(12.dp))
 
@@ -1235,26 +1358,25 @@ private fun CreateWorkBottomSheet(
             Spacer(modifier = Modifier.height(24.dp))
 
             // Create Button
-            val canSubmit = companyName.isNotBlank() &&
-                    address.isNotBlank() &&
-                    areCoordsValid &&
-                    googleMapsLink.isNotBlank() &&
+            val canSubmit = selectedCompany != null &&
+                    selectedServiceBoyId != null &&
                     isSelectedServiceBoyFree &&
                     selectedMasterTaskIds.isNotEmpty() &&
                     !isSubmitting
 
             Button(
                 onClick = {
-                    if (companyName.isBlank()) companyError = true
-                    if (address.isBlank()) addressError = true
-                    if (canSubmit && lat != null && lng != null) {
+                    if (selectedCompany == null) companyError = true
+                    if (selectedServiceBoyId == null || !isSelectedServiceBoyFree) technicianError = true
+                    if (canSubmit && selectedCompany != null && selectedServiceBoyId != null) {
+                        val comp = selectedCompany!!
                         onCreateWork(
-                            companyName.trim(),
-                            address.trim(),
-                            lat,
-                            lng,
-                            googleMapsLink.trim(),
-                            selectedServiceBoyId,
+                            comp.companyName,
+                            comp.address,
+                            comp.latitude,
+                            comp.longitude,
+                            googleMapsLink,
+                            selectedServiceBoyId!!,
                             selectedPocId,
                             selectedSupervisorId,
                             selectedMasterTaskIds.toList(),
@@ -1277,90 +1399,6 @@ private fun CreateWorkBottomSheet(
                     Icon(Icons.Default.AddCircle, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("CREATE / ASSIGN WORK (${selectedMasterTaskIds.size} Tasks)", fontWeight = FontWeight.Bold)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ServiceBoySelectorRow(
-    options: List<UserProfileDto>,
-    selectedId: Long,
-    workViewModel: WorkViewModel,
-    onSelect: (Long) -> Unit
-) {
-    LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        items(options) { user ->
-            val userId = user.id
-            val isSelected = userId == selectedId
-            val isFree = workViewModel.isServiceBoyFree(userId)
-            val displayName = user.name.ifBlank { user.email }
-
-            Surface(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(12.dp))
-                    .clickable(enabled = isFree) {
-                        if (isFree) onSelect(userId)
-                    },
-                shape = RoundedCornerShape(12.dp),
-                border = BorderStroke(
-                    width = if (isSelected && isFree) 2.dp else 1.dp,
-                    color = when {
-                        !isFree -> MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
-                        isSelected -> PrimaryLight
-                        else -> MaterialTheme.colorScheme.outlineVariant
-                    }
-                ),
-                color = when {
-                    !isFree -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
-                    isSelected -> PrimaryLight.copy(alpha = 0.15f)
-                    else -> MaterialTheme.colorScheme.surface
-                },
-                shadowElevation = if (isSelected && isFree) 3.dp else 0.dp
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = if (isSelected && isFree) Icons.Default.CheckCircle else Icons.Default.Person,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                        tint = when {
-                            !isFree -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-                            isSelected -> PrimaryLight
-                            else -> StatusCompleted
-                        }
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Column {
-                        Text(
-                            text = displayName,
-                            fontSize = 13.sp,
-                            fontWeight = if (isSelected && isFree) FontWeight.Bold else FontWeight.Medium,
-                            color = when {
-                                !isFree -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                                isSelected -> PrimaryLight
-                                else -> MaterialTheme.colorScheme.onSurface
-                            }
-                        )
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(
-                                modifier = Modifier
-                                    .size(6.dp)
-                                    .clip(CircleShape)
-                                    .background(if (isFree) StatusCompleted else ErrorRed)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = if (isFree) "AVAILABLE / FREE" else "BUSY ON JOB",
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = if (isFree) StatusCompleted else ErrorRed
-                            )
-                        }
-                    }
                 }
             }
         }

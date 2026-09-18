@@ -137,11 +137,6 @@ object MockWorkRepository {
         status = WorkStatus.WAITING_FOR_POC_REVIEW
     )
 
-    val supervisorPendingWork = demoWork.copy(
-        status = WorkStatus.WAITING_FOR_SUPERVISOR_REVIEW
-    )
-
     fun getWorkForServiceBoy(): Work = demoWork
     fun getWorkForPoc(): Work = pocPendingWork
-    fun getWorkForSupervisor(): Work = supervisorPendingWork
 }

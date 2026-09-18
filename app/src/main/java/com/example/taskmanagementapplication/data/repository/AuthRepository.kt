@@ -55,8 +55,13 @@ class AuthRepository(
                     val domainRole = when (resolvedRole) {
                         "SERVICE_BOY" -> UserRole.SERVICE_BOY
                         "POC" -> UserRole.POC
-                        "SITE_SUPERVISOR", "SUPERVISOR" -> UserRole.SITE_SUPERVISOR
                         "ADMIN" -> UserRole.ADMIN
+                        "SITE_SUPERVISOR", "SUPERVISOR" -> {
+                            tokenManager.clearToken()
+                            return@withContext NetworkResult.Error(
+                                message = "Supervisor mobile login is no longer supported. Please use the Supervisor Web Portal."
+                            )
+                        }
                         else -> {
                             tokenManager.clearToken()
                             return@withContext NetworkResult.Error(
@@ -114,4 +119,27 @@ class AuthRepository(
     }
 
     suspend fun isLoggedIn(): Boolean = tokenManager.getToken() != null
+
+    suspend fun restoreSession(): User? = withContext(Dispatchers.IO) {
+        val sessionData = tokenManager.getSessionData() ?: return@withContext null
+        if (sessionData.accessToken.isBlank()) return@withContext null
+
+        val domainRole = when (sessionData.role.trim().uppercase()) {
+            "SERVICE_BOY" -> UserRole.SERVICE_BOY
+            "POC" -> UserRole.POC
+            "ADMIN" -> UserRole.ADMIN
+            else -> {
+                tokenManager.clearToken()
+                return@withContext null
+            }
+        }
+
+        User(
+            id = sessionData.userId.toString(),
+            name = sessionData.name,
+            email = sessionData.email,
+            phone = sessionData.phone ?: "",
+            role = domainRole
+        )
+    }
 }

@@ -1,5 +1,7 @@
 package com.example.taskmanagementapplication.review.ui
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -31,6 +33,7 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.AlertDialog
@@ -43,6 +46,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
@@ -58,6 +62,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -66,8 +71,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -99,9 +107,11 @@ fun PocReviewScreen(
     val work by workViewModel.work.collectAsStateWithLifecycle()
     val elapsedSeconds by workViewModel.elapsedSeconds.collectAsStateWithLifecycle()
     val isSubmitting by workViewModel.isSubmitting.collectAsStateWithLifecycle()
+    val errorMessage by workViewModel.errorMessage.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
+    var isApprovingAction by remember { mutableStateOf(false) }
     var showRejectSheet by remember { mutableStateOf(false) }
     var rejectionReason by remember { mutableStateOf("") }
     var rejectionError by remember { mutableStateOf<String?>(null) }
@@ -121,8 +131,31 @@ fun PocReviewScreen(
 
     LaunchedEffect(work.backendId) {
         work.backendId?.let {
-            workViewModel.loadPhotos(it)
-            workViewModel.loadApprovals(it)
+            workViewModel.refreshWorkData(it)
+        }
+    }
+
+    LaunchedEffect(errorMessage) {
+        val err = errorMessage
+        if (!err.isNullOrBlank()) {
+            isApprovingAction = false
+            snackbarHostState.showSnackbar(err)
+            workViewModel.clearErrorMessage()
+        }
+    }
+
+    LaunchedEffect(work.pocApproved) {
+        if (work.pocApproved == true && isApprovingAction) {
+            isApprovingAction = false
+            val hasWebReq = work.status == WorkStatus.WAITING_FOR_SUPERVISOR_REVIEW ||
+                work.supervisorApprovalState != null ||
+                work.activityLog.any { it.description.contains("Supervisor Web", ignoreCase = true) }
+            val msg = if (hasWebReq) {
+                "Work approved by POC. Supervisor web approval request created."
+            } else {
+                "Work approved by POC."
+            }
+            snackbarHostState.showSnackbar(msg)
         }
     }
 
@@ -797,27 +830,210 @@ fun PocReviewScreen(
                 // Work is submitted for review
                 when (work.pocApproved) {
                     true -> {
-                        // Already approved: confirmed state displayed in top card
+                        // Already approved by POC: display POC APPROVED status and Supervisor Web Approval Link card
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .semantics { contentDescription = "POC Approved Status and Supervisor Approval Link" },
+                            shape = RoundedCornerShape(20.dp),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                        ) {
+                            Column(modifier = Modifier.padding(20.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(40.dp)
+                                            .clip(CircleShape)
+                                            .background(StatusCompleted.copy(alpha = 0.15f)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.CheckCircle,
+                                            contentDescription = null,
+                                            tint = StatusCompleted,
+                                            modifier = Modifier.size(24.dp)
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = "✓ POC APPROVED",
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = StatusCompleted
+                                        )
+                                        Text(
+                                            text = when (work.supervisorApproved) {
+                                                true -> "Supervisor Approved ✓"
+                                                false -> "Supervisor Rejected"
+                                                else -> "Supervisor Web Approval Pending"
+                                            },
+                                            style = MaterialTheme.typography.bodySmall,
+                                            fontWeight = FontWeight.Medium,
+                                            color = when (work.supervisorApproved) {
+                                                true -> StatusCompleted
+                                                false -> ErrorRed
+                                                else -> AccentOrange
+                                            }
+                                        )
+                                    }
+                                }
+
+                                val approvalUrl = work.supervisorApprovalUrl
+                                if (!approvalUrl.isNullOrBlank()) {
+                                    Spacer(modifier = Modifier.height(16.dp))
+                                    HorizontalDivider()
+                                    Spacer(modifier = Modifier.height(14.dp))
+
+                                    Text(
+                                        text = "Supervisor Web Approval Link",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Spacer(modifier = Modifier.height(8.dp))
+
+                                    Surface(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = RoundedCornerShape(10.dp),
+                                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                                    ) {
+                                        Text(
+                                            text = approvalUrl,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = PrimaryLight,
+                                            fontWeight = FontWeight.Medium,
+                                            modifier = Modifier.padding(12.dp)
+                                        )
+                                    }
+
+                                    Spacer(modifier = Modifier.height(14.dp))
+
+                                    val clipboardManager = LocalClipboardManager.current
+                                    val context = LocalContext.current
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        OutlinedButton(
+                                            onClick = {
+                                                clipboardManager.setText(AnnotatedString(approvalUrl))
+                                                scope.launch {
+                                                    snackbarHostState.showSnackbar("Supervisor approval link copied")
+                                                }
+                                            },
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .height(48.dp)
+                                                .semantics { contentDescription = "Copy supervisor approval link" },
+                                            shape = RoundedCornerShape(12.dp),
+                                            colors = ButtonDefaults.outlinedButtonColors(contentColor = PrimaryLight)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Share,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text("COPY LINK", fontWeight = FontWeight.Bold)
+                                        }
+
+                                        Button(
+                                            onClick = {
+                                                try {
+                                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(approvalUrl)).apply {
+                                                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                                    }
+                                                    context.startActivity(intent)
+                                                } catch (e: Exception) {
+                                                    scope.launch {
+                                                        snackbarHostState.showSnackbar("Could not open browser: ${e.message}")
+                                                    }
+                                                }
+                                            },
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .height(48.dp)
+                                                .semantics { contentDescription = "Open supervisor approval link in browser" },
+                                            shape = RoundedCornerShape(12.dp),
+                                            colors = ButtonDefaults.buttonColors(containerColor = PrimaryLight)
+                                        ) {
+                                            Text("OPEN LINK", fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                } else {
+                                    Spacer(modifier = Modifier.height(14.dp))
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Info,
+                                            contentDescription = null,
+                                            tint = PrimaryLight,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(
+                                            text = "Supervisor Web Approval Request is active. Refreshing link...",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
                     false -> {
                         // Rejection state: option to re-approve if resubmitted
                         Column(modifier = Modifier.fillMaxWidth()) {
-                            SwipeActionButton(
-                                label = ">>> SWIPE TO APPROVE WORK",
-                                completedLabel = "✓ POC APPROVED",
-                                trackColor = StatusCompleted,
-                                enabled = !isSubmitting,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(60.dp)
-                                    .semantics { contentDescription = "Swipe to approve work" },
-                                onSwipeComplete = {
-                                    workViewModel.approveByPoc()
-                                    scope.launch {
-                                        snackbarHostState.showSnackbar("Work approved by POC! Sent to Supervisor.")
-                                    }
+                            if (isSubmitting) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 8.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    LinearProgressIndicator(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(4.dp)
+                                            .clip(RoundedCornerShape(2.dp)),
+                                        color = StatusCompleted
+                                    )
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Text(
+                                        text = "Submitting POC decision to server...",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Spacer(modifier = Modifier.height(8.dp))
                                 }
-                            )
+                            }
+
+                            key(work.pocApproved, isSubmitting) {
+                                SwipeActionButton(
+                                    label = ">>> SWIPE TO APPROVE WORK",
+                                    completedLabel = "✓ POC APPROVED",
+                                    trackColor = StatusCompleted,
+                                    enabled = !isSubmitting,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(60.dp)
+                                        .semantics { contentDescription = "Swipe to approve work" },
+                                    onSwipeComplete = {
+                                        if (!isSubmitting) {
+                                            isApprovingAction = true
+                                            workViewModel.approveByPoc()
+                                        }
+                                    }
+                                )
+                            }
 
                             Spacer(modifier = Modifier.height(12.dp))
 
@@ -840,22 +1056,48 @@ fun PocReviewScreen(
                     null -> {
                         // Pending POC review: show SWIPE TO APPROVE WORK and REJECT WORK
                         Column(modifier = Modifier.fillMaxWidth()) {
-                            SwipeActionButton(
-                                label = ">>> SWIPE TO APPROVE WORK",
-                                completedLabel = "✓ POC APPROVED",
-                                trackColor = StatusCompleted,
-                                enabled = !isSubmitting,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(60.dp)
-                                    .semantics { contentDescription = "Swipe to approve work" },
-                                onSwipeComplete = {
-                                    workViewModel.approveByPoc()
-                                    scope.launch {
-                                        snackbarHostState.showSnackbar("Work approved by POC! Sent to Supervisor.")
-                                    }
+                            if (isSubmitting) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 8.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    LinearProgressIndicator(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(4.dp)
+                                            .clip(RoundedCornerShape(2.dp)),
+                                        color = StatusCompleted
+                                    )
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Text(
+                                        text = "Submitting POC decision to server...",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Spacer(modifier = Modifier.height(8.dp))
                                 }
-                            )
+                            }
+
+                            key(work.pocApproved, isSubmitting) {
+                                SwipeActionButton(
+                                    label = ">>> SWIPE TO APPROVE WORK",
+                                    completedLabel = "✓ POC APPROVED",
+                                    trackColor = StatusCompleted,
+                                    enabled = !isSubmitting,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(60.dp)
+                                        .semantics { contentDescription = "Swipe to approve work" },
+                                    onSwipeComplete = {
+                                        if (!isSubmitting) {
+                                            isApprovingAction = true
+                                            workViewModel.approveByPoc()
+                                        }
+                                    }
+                                )
+                            }
 
                             Spacer(modifier = Modifier.height(12.dp))
 
@@ -947,13 +1189,12 @@ fun PocReviewScreen(
                             rejectionError = "Rejection reason is mandatory."
                             return@Button
                         }
-                        workViewModel.rejectByPoc(rejectionReason)
+                        val reasonToSubmit = rejectionReason.trim()
                         showRejectSheet = false
                         rejectionReason = ""
-                        scope.launch {
-                            snackbarHostState.showSnackbar("Work rejected. Feedback sent to Service Boy.")
-                        }
+                        workViewModel.rejectByPoc(reasonToSubmit)
                     },
+                    enabled = !isSubmitting,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(50.dp)

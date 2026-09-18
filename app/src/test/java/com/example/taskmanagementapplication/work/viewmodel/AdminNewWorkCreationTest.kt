@@ -227,4 +227,77 @@ class AdminNewWorkCreationTest {
         val completedWork = assignedWork.copy(status = WorkStatus.COMPLETED)
         assertEquals("COMPLETED", viewModel.getServiceBoyStatusForWork(completedWork))
     }
+
+    @Test
+    fun testCompanyMasterList_DefaultsAndCoordinates() {
+        val companies = viewModel.companies.value
+        assertEquals(5, companies.size)
+
+        val companyNames = companies.map { it.companyName }
+        assertTrue(companyNames.contains("Company A"))
+        assertTrue(companyNames.contains("Company B"))
+        assertTrue(companyNames.contains("Company C"))
+        assertTrue(companyNames.contains("Company D"))
+        assertTrue(companyNames.contains("Company E"))
+
+        val testAddress = "Plot 42, Sector 5, Ratnagiri District, Maharashtra 415612"
+        val testLat = 17.5230403
+        val testLng = 73.5378423
+
+        for (comp in companies) {
+            assertEquals(testAddress, comp.address)
+            assertEquals(testLat, comp.latitude, 0.0001)
+            assertEquals(testLng, comp.longitude, 0.0001)
+        }
+    }
+
+    @Test
+    fun testCreateWork_WithSelectedCompanyAndTechnician() {
+        val selectedCompany = viewModel.companies.value.first { it.companyName == "Company B" }
+        val serviceBoyId = 1L
+        assertTrue(viewModel.isServiceBoyFree(serviceBoyId))
+
+        viewModel.createWorkWithChecklist(
+            companyName = selectedCompany.companyName,
+            address = selectedCompany.address,
+            serviceBoyId = serviceBoyId,
+            pocId = 2L,
+            supervisorId = 3L,
+            masterTaskIds = listOf(1L, 2L),
+            latitude = selectedCompany.latitude,
+            longitude = selectedCompany.longitude,
+            googleMapsLink = "https://www.google.com/maps?q=${selectedCompany.latitude},${selectedCompany.longitude}"
+        )
+
+        assertNull(viewModel.errorMessage.value)
+        val createdWork = viewModel.work.value
+        assertEquals("Company B", createdWork.companyName)
+        assertEquals("Plot 42, Sector 5, Ratnagiri District, Maharashtra 415612", createdWork.address)
+        assertEquals(17.5230403, createdWork.latitude ?: 0.0, 0.0001)
+        assertEquals(73.5378423, createdWork.longitude ?: 0.0, 0.0001)
+        assertEquals("Company B Service Work", createdWork.title)
+        assertEquals(WorkStatus.NOT_STARTED, createdWork.status)
+        assertEquals(2, createdWork.checklist.size)
+    }
+
+    @Test
+    fun testCreateWork_NewWorkAppearsAtTopOfList() {
+        val initialSize = viewModel.predefinedWorks.value.size
+
+        viewModel.createWorkWithChecklist(
+            companyName = "New Company Alpha",
+            address = "Alpha Tower, Mumbai",
+            serviceBoyId = 1L,
+            pocId = 2L,
+            supervisorId = 3L,
+            masterTaskIds = listOf(1L),
+            scheduledDate = "2026-09-19"
+        )
+
+        val updatedList = viewModel.predefinedWorks.value
+        assertEquals(initialSize + 1, updatedList.size)
+        // Authoritative requirement: Newest work must appear at index 0 (top of list)
+        assertEquals("New Company Alpha", updatedList.first().companyName)
+        assertEquals("New Company Alpha Service Work", updatedList.first().title)
+    }
 }

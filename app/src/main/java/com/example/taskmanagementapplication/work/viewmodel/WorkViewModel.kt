@@ -197,6 +197,14 @@ class WorkViewModel @JvmOverloads constructor(
             MasterTask(12L, "Equipment Repair", "REPAIR", 12),
             MasterTask(13L, "Additional Area Inspection", "INSPECTION", 13)
         )
+
+        val defaultCompanies = listOf(
+            Company(id = 1L, companyName = "Company A", address = "Plot 42, Sector 5, Ratnagiri District, Maharashtra 415612", latitude = 17.5230403, longitude = 73.5378423),
+            Company(id = 2L, companyName = "Company B", address = "Plot 42, Sector 5, Ratnagiri District, Maharashtra 415612", latitude = 17.5230403, longitude = 73.5378423),
+            Company(id = 3L, companyName = "Company C", address = "Plot 42, Sector 5, Ratnagiri District, Maharashtra 415612", latitude = 17.5230403, longitude = 73.5378423),
+            Company(id = 4L, companyName = "Company D", address = "Plot 42, Sector 5, Ratnagiri District, Maharashtra 415612", latitude = 17.5230403, longitude = 73.5378423),
+            Company(id = 5L, companyName = "Company E", address = "Plot 42, Sector 5, Ratnagiri District, Maharashtra 415612", latitude = 17.5230403, longitude = 73.5378423)
+        )
     }
 
     // ---- Location State ----
@@ -226,6 +234,10 @@ class WorkViewModel @JvmOverloads constructor(
     private val _isSubmitting = MutableStateFlow(false)
     val isSubmitting: StateFlow<Boolean> = _isSubmitting.asStateFlow()
 
+    fun clearErrorMessage() {
+        _errorMessage.value = null
+    }
+
     // ---- Additional work ----
     private val _additionalWork = MutableStateFlow<List<AdditionalWorkItem>>(emptyList())
     val additionalWork: StateFlow<List<AdditionalWorkItem>> = _additionalWork.asStateFlow()
@@ -254,6 +266,10 @@ class WorkViewModel @JvmOverloads constructor(
     private val _masterTasks = MutableStateFlow<List<MasterTask>>(defaultMasterTasks)
     val masterTasks: StateFlow<List<MasterTask>> = _masterTasks.asStateFlow()
 
+    // ---- Companies Master Catalog ----
+    private val _companies = MutableStateFlow<List<Company>>(defaultCompanies)
+    val companies: StateFlow<List<Company>> = _companies.asStateFlow()
+
     // ---- Available Users for Work Assignment ----
     private val _availableUsers = MutableStateFlow<List<UserProfileDto>>(
         listOf(
@@ -267,6 +283,7 @@ class WorkViewModel @JvmOverloads constructor(
     init {
         loadMasterTasks()
         loadUsers()
+        loadCompanies()
     }
 
     fun loadUsers() {
@@ -276,6 +293,20 @@ class WorkViewModel @JvmOverloads constructor(
                 is NetworkResult.Success -> {
                     if (result.data.isNotEmpty()) {
                         _availableUsers.value = result.data
+                    }
+                }
+                else -> {}
+            }
+        }
+    }
+
+    fun loadCompanies() {
+        val repo = workRepository ?: return
+        viewModelScope.launch {
+            when (val result = repo.getCompanies()) {
+                is NetworkResult.Success -> {
+                    if (result.data.isNotEmpty()) {
+                        _companies.value = result.data
                     }
                 }
                 else -> {}
@@ -315,7 +346,10 @@ class WorkViewModel @JvmOverloads constructor(
 
             when (val result = repo.getMyWorks()) {
                 is NetworkResult.Success -> {
-                    val works = result.data
+                    val works = result.data.sortedWith(
+                        compareByDescending<Work> { it.createdAt ?: "" }
+                            .thenByDescending { it.backendId ?: (it.id.toLongOrNull() ?: 0L) }
+                    )
                     _predefinedWorks.value = works
 
                     val activeWorks = works.filter { it.status != WorkStatus.COMPLETED }
@@ -451,6 +485,26 @@ class WorkViewModel @JvmOverloads constructor(
             when (val result = repo.getActivity(workId)) {
                 is NetworkResult.Success -> {
                     _work.update { it.copy(activityLog = result.data) }
+                    persistSnapshot()
+                }
+                else -> {}
+            }
+        }
+    }
+
+    fun refreshWorkData(workId: Long) {
+        val repo = workRepository ?: return
+        viewModelScope.launch {
+            loadApprovals(workId)
+            loadActivity(workId)
+            loadPhotos(workId)
+            when (val refreshResult = repo.refreshWork(workId)) {
+                is NetworkResult.Success -> {
+                    _work.update { current ->
+                        refreshResult.data.copy(
+                            supervisorApprovalUrl = refreshResult.data.supervisorApprovalUrl ?: current.supervisorApprovalUrl
+                        )
+                    }
                     persistSnapshot()
                 }
                 else -> {}
@@ -1121,6 +1175,8 @@ class WorkViewModel @JvmOverloads constructor(
                     }
                     is NetworkResult.Error -> {
                         _errorMessage.value = result.toUserMessage()
+                        loadMyWork()
+                        loadUsers()
                     }
                     else -> {}
                 }
@@ -1160,7 +1216,12 @@ class WorkViewModel @JvmOverloads constructor(
                 pocId = pocId,
                 supervisorId = supervisorId
             )
-            _predefinedWorks.update { listOf(newWork) + it }
+            _predefinedWorks.update { list ->
+                (listOf(newWork) + list).sortedWith(
+                    compareByDescending<Work> { it.createdAt ?: "" }
+                        .thenByDescending { it.backendId ?: (it.id.toLongOrNull() ?: 0L) }
+                )
+            }
             _work.value = newWork
             onSuccess?.invoke()
         }
@@ -1297,40 +1358,71 @@ class WorkViewModel @JvmOverloads constructor(
         val now = currentTimeString()
 
         if (workId != null && repo != null) {
+            if (_isSubmitting.value) return false
             if (!isOnline.value) {
                 _errorMessage.value = "Internet connection required to complete this action"
                 return false
             }
-            if (_isSubmitting.value) return false
+            _isSubmitting.value = true
             viewModelScope.launch {
-                _isSubmitting.value = true
-                when (val result = repo.pocApprove(workId)) {
-                    is NetworkResult.Success -> {
-                        loadApprovals(workId)
-                        loadNotifications()
-                        when (val workResult = repo.getWork(workId)) {
-                            is NetworkResult.Success -> _work.value = workResult.data
-                            else -> _work.update { it.copy(status = WorkStatus.WAITING_FOR_SUPERVISOR_REVIEW, pocApproved = true) }
-                        }
-                        loadActivity(workId)
-                        persistSnapshot()
-                    }
-                    is NetworkResult.Error -> {
-                        _errorMessage.value = result.toUserMessage()
-                        if (result.code == 409) {
+                try {
+                    when (val result = repo.pocApprove(workId)) {
+                        is NetworkResult.Success -> {
+                            val rpcData = result.data
+                            val approvalUrl = rpcData.supervisorApprovalUrl
+                            val decisionTime = rpcData.approval?.decidedAt ?: rpcData.decidedAt ?: now
+
+                            // Immediately update state with authoritative approval and supervisor approval URL
+                            _work.update { current ->
+                                current.copy(
+                                    status = WorkStatus.WAITING_FOR_SUPERVISOR_REVIEW,
+                                    pocApproved = true,
+                                    pocApprovalTime = formatServerTime(decisionTime),
+                                    pocRejectionReason = null,
+                                    supervisorApprovalUrl = approvalUrl ?: current.supervisorApprovalUrl
+                                )
+                            }
+                            persistSnapshot()
+
                             loadApprovals(workId)
-                            repo.getWork(workId).let { wResult ->
-                                if (wResult is NetworkResult.Success) {
-                                    _work.value = wResult.data
+                            loadNotifications()
+                            loadActivity(workId)
+
+                            when (val refreshResult = repo.refreshWork(workId)) {
+                                is NetworkResult.Success -> {
+                                    _work.update { current ->
+                                        refreshResult.data.copy(
+                                            pocApproved = true,
+                                            supervisorApprovalUrl = approvalUrl ?: refreshResult.data.supervisorApprovalUrl ?: current.supervisorApprovalUrl
+                                        )
+                                    }
                                     persistSnapshot()
+                                }
+                                is NetworkResult.Error -> {
+                                    // Non-critical: already have authoritative state updated
+                                }
+                                else -> {}
+                            }
+                        }
+                        is NetworkResult.Error -> {
+                            _errorMessage.value = result.toUserMessage()
+                            if (result.code == 409) {
+                                loadApprovals(workId)
+                                repo.refreshWork(workId).let { wResult ->
+                                    if (wResult is NetworkResult.Success) {
+                                        _work.value = wResult.data
+                                        persistSnapshot()
+                                    }
                                 }
                             }
                         }
+                        else -> {}
                     }
-                    else -> {}
+                } finally {
+                    _isSubmitting.value = false
                 }
-                _isSubmitting.value = false
             }
+            return true
         } else if (repo == null) {
             // Test fallback for unit tests
             _work.update {
@@ -1342,12 +1434,13 @@ class WorkViewModel @JvmOverloads constructor(
                 )
             }
             addActivity("POC approved work (${currentWork.pocName})", now)
+            addActivity("Supervisor Web Approval Request initiated for ${currentWork.supervisorName} (Approval Method: WEB)", now)
             _notifications.update { current ->
                 listOf(
                     AppNotification(
                         id = "NOTIF_${System.currentTimeMillis()}",
-                        title = "POC Approved Work",
-                        message = "${currentWork.pocName} approved the work evidence. Awaiting Supervisor review.",
+                        title = "POC Approved — Supervisor Web Approval Request",
+                        message = "${currentWork.pocName} approved work evidence. Web Portal approval link initiated for Supervisor ${currentWork.supervisorName}.",
                         timestamp = now,
                         isRead = false
                     )
@@ -1374,31 +1467,45 @@ class WorkViewModel @JvmOverloads constructor(
         val now = currentTimeString()
 
         if (workId != null && repo != null) {
+            if (_isSubmitting.value) return false
             if (!isOnline.value) {
                 _errorMessage.value = "Internet connection required to complete this action"
                 return false
             }
-            if (_isSubmitting.value) return false
+            _isSubmitting.value = true
             viewModelScope.launch {
-                _isSubmitting.value = true
-                when (val result = repo.pocReject(workId, trimmed)) {
-                    is NetworkResult.Success -> {
-                        loadApprovals(workId)
-                        loadNotifications()
-                        when (val workResult = repo.getWork(workId)) {
-                            is NetworkResult.Success -> _work.value = workResult.data
-                            else -> _work.update { it.copy(status = WorkStatus.REJECTED, pocApproved = false, pocRejectionReason = trimmed) }
+                try {
+                    when (val result = repo.pocReject(workId, trimmed)) {
+                        is NetworkResult.Success -> {
+                            _work.update { current ->
+                                current.copy(
+                                    status = WorkStatus.REJECTED,
+                                    pocApproved = false,
+                                    pocRejectionReason = trimmed
+                                )
+                            }
+                            persistSnapshot()
+                            loadApprovals(workId)
+                            loadNotifications()
+                            loadActivity(workId)
+                            when (val refreshResult = repo.refreshWork(workId)) {
+                                is NetworkResult.Success -> {
+                                    _work.value = refreshResult.data
+                                    persistSnapshot()
+                                }
+                                else -> {}
+                            }
                         }
-                        loadActivity(workId)
-                        persistSnapshot()
+                        is NetworkResult.Error -> {
+                            _errorMessage.value = result.toUserMessage()
+                        }
+                        else -> {}
                     }
-                    is NetworkResult.Error -> {
-                        _errorMessage.value = result.toUserMessage()
-                    }
-                    else -> {}
+                } finally {
+                    _isSubmitting.value = false
                 }
-                _isSubmitting.value = false
             }
+            return true
         } else if (repo == null) {
             // Test fallback for unit tests
             _work.update {
@@ -1415,151 +1522,6 @@ class WorkViewModel @JvmOverloads constructor(
                         id = "NOTIF_${System.currentTimeMillis()}",
                         title = "Changes Requested by POC",
                         message = "POC ${_work.value.pocName}: \"$trimmed\"",
-                        timestamp = now,
-                        isRead = false
-                    )
-                ) + current
-            }
-            return true
-        } else {
-            _errorMessage.value = "Server connection unavailable. Please check your network or server configuration."
-            return false
-        }
-        return true
-    }
-
-    fun approveBySupervisor(notes: String = ""): Boolean {
-        val currentWork = _work.value
-        if (currentWork.pocApproved != true) {
-            _errorMessage.value = "Supervisor approval is unavailable until POC approval is completed."
-            return false
-        }
-        if (currentWork.supervisorApproved == true) return true
-
-        val workId = currentWork.backendId
-        val repo = workRepository
-        val now = currentTimeString()
-
-        if (workId != null && repo != null) {
-            if (!isOnline.value) {
-                _errorMessage.value = "Internet connection required to complete this action"
-                return false
-            }
-            if (_isSubmitting.value) return false
-            viewModelScope.launch {
-                _isSubmitting.value = true
-                when (val result = repo.supervisorApprove(workId)) {
-                    is NetworkResult.Success -> {
-                        loadApprovals(workId)
-                        loadNotifications()
-                        when (val workResult = repo.getWork(workId)) {
-                            is NetworkResult.Success -> _work.value = workResult.data
-                            else -> _work.update { it.copy(status = WorkStatus.APPROVED, supervisorApproved = true, readyForCompletion = true) }
-                        }
-                        loadActivity(workId)
-                        persistSnapshot()
-                    }
-                    is NetworkResult.Error -> {
-                        _errorMessage.value = result.toUserMessage()
-                        if (result.code == 409) {
-                            loadApprovals(workId)
-                            repo.getWork(workId).let { wResult ->
-                                if (wResult is NetworkResult.Success) {
-                                    _work.value = wResult.data
-                                    persistSnapshot()
-                                }
-                            }
-                        }
-                    }
-                    else -> {}
-                }
-                _isSubmitting.value = false
-            }
-        } else if (repo == null) {
-            // Test fallback for unit tests
-            _work.update {
-                it.copy(
-                    status = WorkStatus.APPROVED,
-                    supervisorApproved = true,
-                    supervisorApprovalTime = now,
-                    supervisorRejectionReason = null,
-                    readyForCompletion = true
-                )
-            }
-            addActivity("Supervisor approved work (${currentWork.supervisorName})", now)
-            _notifications.update { current ->
-                listOf(
-                    AppNotification(
-                        id = "NOTIF_${System.currentTimeMillis()}",
-                        title = "Work Approved!",
-                        message = "Supervisor ${currentWork.supervisorName} gave final approval. Ready to complete work.",
-                        timestamp = now,
-                        isRead = false
-                    )
-                ) + current
-            }
-            return true
-        } else {
-            _errorMessage.value = "Server connection unavailable. Please check your network or server configuration."
-            return false
-        }
-        return true
-    }
-
-    fun rejectBySupervisor(reason: String): Boolean {
-        val trimmed = reason.trim()
-        if (trimmed.isBlank()) {
-            _errorMessage.value = "Rejection reason is mandatory."
-            return false
-        }
-
-        val currentWork = _work.value
-        val workId = currentWork.backendId
-        val repo = workRepository
-        val now = currentTimeString()
-
-        if (workId != null && repo != null) {
-            if (!isOnline.value) {
-                _errorMessage.value = "Internet connection required to complete this action"
-                return false
-            }
-            if (_isSubmitting.value) return false
-            viewModelScope.launch {
-                _isSubmitting.value = true
-                when (val result = repo.supervisorReject(workId, trimmed)) {
-                    is NetworkResult.Success -> {
-                        loadApprovals(workId)
-                        loadNotifications()
-                        when (val workResult = repo.getWork(workId)) {
-                            is NetworkResult.Success -> _work.value = workResult.data
-                            else -> _work.update { it.copy(status = WorkStatus.REJECTED, supervisorApproved = false, supervisorRejectionReason = trimmed) }
-                        }
-                        loadActivity(workId)
-                        persistSnapshot()
-                    }
-                    is NetworkResult.Error -> {
-                        _errorMessage.value = result.toUserMessage()
-                    }
-                    else -> {}
-                }
-                _isSubmitting.value = false
-            }
-        } else if (repo == null) {
-            // Test fallback for unit tests
-            _work.update {
-                it.copy(
-                    status = WorkStatus.REJECTED,
-                    supervisorApproved = false,
-                    supervisorRejectionReason = trimmed
-                )
-            }
-            addActivity("Supervisor requested changes: \"$trimmed\"", now)
-            _notifications.update { current ->
-                listOf(
-                    AppNotification(
-                        id = "NOTIF_${System.currentTimeMillis()}",
-                        title = "Changes Requested by Supervisor",
-                        message = "Supervisor ${_work.value.supervisorName}: \"$trimmed\"",
                         timestamp = now,
                         isRead = false
                     )
@@ -2070,9 +2032,6 @@ class WorkViewModel @JvmOverloads constructor(
 
     fun canCompleteWork(work: Work = _work.value): Boolean =
         work.pocApproved == true && work.supervisorApproved == true && work.status != WorkStatus.COMPLETED
-
-    fun canSupervisorApprove(work: Work = _work.value): Boolean =
-        work.pocApproved == true && work.supervisorApproved != true
 
     // ==========================================
     // Master Prompt 11: Work Report Operations

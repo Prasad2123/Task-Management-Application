@@ -68,25 +68,11 @@ class PocAndSupervisorReviewWorkflowTest {
     }
 
     @Test
-    fun testSupervisorCannotApproveBeforePocApproval() {
+    fun testPocApprovalCreatesSupervisorWebRequest() {
         viewModel.submitWorkForReview()
         val work = viewModel.work.value
         assertEquals(WorkStatus.WAITING_FOR_POC_REVIEW, work.status)
         assertNull("POC approval must be null initially", work.pocApproved)
-
-        // Attempt Supervisor approval
-        val result = viewModel.approveBySupervisor()
-        assertFalse("Supervisor approval must fail when POC has not approved yet", result)
-        assertEquals(
-            "Supervisor approval is unavailable until POC approval is completed.",
-            viewModel.errorMessage.value
-        )
-        assertNull("Supervisor approval state must remain null", viewModel.work.value.supervisorApproved)
-    }
-
-    @Test
-    fun testPocApprovalTransitionsToWaitingSupervisor() {
-        viewModel.submitWorkForReview()
 
         // POC Approves work
         val approved = viewModel.approveByPoc()
@@ -97,6 +83,10 @@ class PocAndSupervisorReviewWorkflowTest {
         assertEquals(true, workAfterPoc.pocApproved)
         assertEquals(ApprovalState.APPROVED, workAfterPoc.pocApprovalState)
         assertNotNull("POC approval time must be recorded", workAfterPoc.pocApprovalTime)
+        assertTrue(
+            "Audit event must record Supervisor Web Approval Request initiation",
+            workAfterPoc.activityLog.any { it.description.contains("Supervisor Web Approval Request initiated") }
+        )
     }
 
     @Test
@@ -104,9 +94,15 @@ class PocAndSupervisorReviewWorkflowTest {
         viewModel.submitWorkForReview()
         viewModel.approveByPoc()
 
-        // Now Supervisor Approves
-        val supApproved = viewModel.approveBySupervisor()
-        assertTrue("Supervisor approval should succeed after POC approves", supApproved)
+        // Authoritative decision recorded in Supabase by Supervisor via Web Portal
+        viewModel.selectWork(
+            viewModel.work.value.copy(
+                status = WorkStatus.APPROVED,
+                supervisorApproved = true,
+                supervisorApprovalTime = "11:15 AM",
+                readyForCompletion = true
+            )
+        )
 
         val finalWork = viewModel.work.value
         assertEquals(WorkStatus.APPROVED, finalWork.status)

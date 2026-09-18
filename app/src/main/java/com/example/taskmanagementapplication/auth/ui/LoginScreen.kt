@@ -335,9 +335,9 @@ fun LoginScreen(
                         }
                     )
                     DemoRoleChip(
-                        label = "Supervisor",
+                        label = "Admin",
                         onClick = {
-                            email = "supervisor@demo.com"
+                            email = "admin@demo.com"
                             password = "password"
                         }
                     )

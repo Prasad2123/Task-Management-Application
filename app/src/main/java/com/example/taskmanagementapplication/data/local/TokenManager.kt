@@ -90,4 +90,35 @@ class TokenManager(private val context: Context) {
     val userNameFlow: Flow<String?> = context.dataStore.data.map { it[KEY_USER_NAME] }
     val userEmailFlow: Flow<String?> = context.dataStore.data.map { it[KEY_USER_EMAIL] }
     val userPhoneFlow: Flow<String?> = context.dataStore.data.map { it[KEY_USER_PHONE] }
+
+    data class SessionData(
+        val accessToken: String,
+        val refreshToken: String?,
+        val userId: Long,
+        val name: String,
+        val email: String,
+        val role: String,
+        val phone: String?
+    )
+
+    suspend fun getSessionData(): SessionData? {
+        val prefs = context.dataStore.data.first()
+        val token = prefs[KEY_ACCESS_TOKEN] ?: return null
+        if (token.isBlank()) return null
+        val userId = prefs[KEY_USER_ID] ?: return null
+        val role = prefs[KEY_USER_ROLE] ?: return null
+        val name = prefs[KEY_USER_NAME] ?: ""
+        val email = prefs[KEY_USER_EMAIL] ?: ""
+        val phone = prefs[KEY_USER_PHONE]
+        val refreshToken = prefs[KEY_REFRESH_TOKEN]
+        return SessionData(
+            accessToken = token,
+            refreshToken = refreshToken,
+            userId = userId,
+            name = name,
+            email = email,
+            role = role,
+            phone = phone
+        )
+    }
 }

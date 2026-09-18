@@ -14,10 +14,8 @@ import com.example.taskmanagementapplication.core.model.UserRole
 import com.example.taskmanagementapplication.core.model.WorkStatus
 import com.example.taskmanagementapplication.home.ui.PocHomeScreen
 import com.example.taskmanagementapplication.home.ui.ServiceBoyHomeScreen
-import com.example.taskmanagementapplication.home.ui.SupervisorHomeScreen
 import com.example.taskmanagementapplication.profile.ui.ProfileScreen
 import com.example.taskmanagementapplication.review.ui.PocReviewScreen
-import com.example.taskmanagementapplication.review.ui.SupervisorReviewScreen
 import com.example.taskmanagementapplication.splash.SplashScreen
 import com.example.taskmanagementapplication.work.ui.ApprovalStatusScreen
 import com.example.taskmanagementapplication.work.ui.CompleteAndSubmitScreen
@@ -36,6 +34,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Modifier
 
 @Composable
@@ -47,6 +47,7 @@ fun AppNavHost(
     val workViewModel: WorkViewModel = viewModel()
     val networkStatus by workViewModel.networkStatus.collectAsStateWithLifecycle()
     val lastSyncedText by workViewModel.lastSyncedText.collectAsStateWithLifecycle()
+    val coroutineScope = rememberCoroutineScope()
 
     // Listen to 401 session expiry events
     LaunchedEffect(Unit) {
@@ -86,8 +87,24 @@ fun AppNavHost(
         composable(Routes.SPLASH) {
             SplashScreen(
                 onSplashFinished = {
-                    navController.navigate(Routes.LOGIN) {
-                        popUpTo(Routes.SPLASH) { inclusive = true }
+                    coroutineScope.launch {
+                        val restoredUser = authViewModel.checkAndRestoreSession()
+                        if (restoredUser != null) {
+                            workViewModel.loadMyWork()
+                            val destination = when (restoredUser.role) {
+                                UserRole.SERVICE_BOY -> Routes.SERVICE_HOME
+                                UserRole.POC -> Routes.POC_HOME
+                                UserRole.ADMIN -> Routes.ADMIN_DASHBOARD
+                                UserRole.SITE_SUPERVISOR -> Routes.LOGIN
+                            }
+                            navController.navigate(destination) {
+                                popUpTo(Routes.SPLASH) { inclusive = true }
+                            }
+                        } else {
+                            navController.navigate(Routes.LOGIN) {
+                                popUpTo(Routes.SPLASH) { inclusive = true }
+                            }
+                        }
                     }
                 }
             )
@@ -101,8 +118,8 @@ fun AppNavHost(
                     val destination = when (user.role) {
                         UserRole.SERVICE_BOY -> Routes.SERVICE_HOME
                         UserRole.POC -> Routes.POC_HOME
-                        UserRole.SITE_SUPERVISOR -> Routes.SUPERVISOR_HOME
                         UserRole.ADMIN -> Routes.ADMIN_DASHBOARD
+                        UserRole.SITE_SUPERVISOR -> return@LoginScreen
                     }
                     navController.navigate(destination) {
                         popUpTo(Routes.LOGIN) { inclusive = true }
@@ -295,23 +312,6 @@ fun AppNavHost(
 
         composable(Routes.POC_REVIEW) {
             PocReviewScreen(
-                onBack = { navController.popBackStack() },
-                workViewModel = workViewModel
-            )
-        }
-
-        composable(Routes.SUPERVISOR_HOME) {
-            SupervisorHomeScreen(
-                authViewModel = authViewModel,
-                onReviewWork = { navController.navigate(Routes.SUPERVISOR_REVIEW) },
-                onOpenProfile = { navController.navigate(Routes.PROFILE) },
-                onViewReport = { navController.navigate(Routes.WORK_REPORT) },
-                workViewModel = workViewModel
-            )
-        }
-
-        composable(Routes.SUPERVISOR_REVIEW) {
-            SupervisorReviewScreen(
                 onBack = { navController.popBackStack() },
                 workViewModel = workViewModel
             )

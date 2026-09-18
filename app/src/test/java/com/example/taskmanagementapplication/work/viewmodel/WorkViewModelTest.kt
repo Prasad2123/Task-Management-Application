@@ -274,8 +274,13 @@ class WorkViewModelTest {
         viewModel.submitWorkForReview()
         viewModel.approveByPoc("Amit Kumar")
 
-        val supervisorSuccess = viewModel.approveBySupervisor("Suresh Patel")
-        assertTrue(supervisorSuccess)
+        // Simulate authoritative Supervisor Web Portal approval synced to Android
+        val workWithWebApproval = viewModel.work.value.copy(
+            supervisorApproved = true,
+            supervisorApprovalTime = "18 Sep 2026, 11:30 AM",
+            status = com.example.taskmanagementapplication.core.model.WorkStatus.APPROVED
+        )
+        viewModel.selectWork(workWithWebApproval)
 
         val workAfterSupervisor = viewModel.work.value
         assertEquals(true, workAfterSupervisor.supervisorApproved)
@@ -298,8 +303,13 @@ class WorkViewModelTest {
         viewModel.submitWorkForReview()
         viewModel.approveByPoc("Amit Kumar")
 
-        val rejectSuccess = viewModel.rejectBySupervisor("Additional work item needs re-inspection")
-        assertTrue(rejectSuccess)
+        // Simulate authoritative Supervisor Web Portal rejection synced to Android
+        val workWithWebRejection = viewModel.work.value.copy(
+            supervisorApproved = false,
+            supervisorRejectionReason = "Additional work item needs re-inspection",
+            status = com.example.taskmanagementapplication.core.model.WorkStatus.REJECTED
+        )
+        viewModel.selectWork(workWithWebRejection)
 
         val workAfterReject = viewModel.work.value
         assertEquals(false, workAfterReject.supervisorApproved)
@@ -337,11 +347,15 @@ class WorkViewModelTest {
         viewModel.submitWorkForReview()
         assertNull(viewModel.work.value.pocApproved)
 
-        // Supervisor tries to approve directly without POC approval
-        val supervisorSuccess = viewModel.approveBySupervisor("Suresh Patil")
-        assertFalse(supervisorSuccess)
-        assertNull(viewModel.work.value.supervisorApproved)
+        // Work is not considered approved and cannot be completed without POC approval
+        val unapprovedPocWork = viewModel.work.value.copy(
+            pocApproved = null,
+            supervisorApproved = true,
+            status = com.example.taskmanagementapplication.core.model.WorkStatus.WAITING_FOR_REVIEW
+        )
+        viewModel.selectWork(unapprovedPocWork)
         assertFalse(viewModel.isApproved())
+        assertFalse(viewModel.completeWork())
     }
 
     @Test
@@ -364,23 +378,19 @@ class WorkViewModelTest {
     }
 
     @Test
-    fun testSupervisorApproval_idempotent() {
+    fun testApproveByPoc_createsWebApprovalRequestLog_idempotent() {
         viewModel.submitWorkForReview()
-        viewModel.approveByPoc()
-        val firstApprove = viewModel.approveBySupervisor()
+        val firstApprove = viewModel.approveByPoc()
         assertTrue(firstApprove)
-        val supTime = viewModel.work.value.supervisorApprovalTime
-        assertNotNull(supTime)
 
-        val supLogCount = viewModel.work.value.activityLog.count { it.description.contains("Supervisor approved work") }
-        assertEquals(1, supLogCount)
+        val webLogCount = viewModel.work.value.activityLog.count { it.description.contains("Supervisor Web Approval Request") }
+        assertEquals(1, webLogCount)
 
-        // Trigger approveBySupervisor again
-        val secondApprove = viewModel.approveBySupervisor()
+        // Trigger approveByPoc again
+        val secondApprove = viewModel.approveByPoc()
         assertTrue(secondApprove)
-        assertEquals(supTime, viewModel.work.value.supervisorApprovalTime)
-        val supLogCountAfter = viewModel.work.value.activityLog.count { it.description.contains("Supervisor approved work") }
-        assertEquals(1, supLogCountAfter)
+        val webLogCountAfter = viewModel.work.value.activityLog.count { it.description.contains("Supervisor Web Approval Request") }
+        assertEquals(1, webLogCountAfter)
     }
 
     @Test
@@ -394,8 +404,13 @@ class WorkViewModelTest {
         viewModel.approveByPoc()
         assertFalse(viewModel.completeWork())
 
-        // 3. Both approved -> Can complete
-        viewModel.approveBySupervisor()
+        // 3. Both approved (Supervisor approved via Web Portal) -> Can complete
+        val workWithSupApproval = viewModel.work.value.copy(
+            supervisorApproved = true,
+            supervisorApprovalTime = "18 Sep 2026, 11:30 AM",
+            status = com.example.taskmanagementapplication.core.model.WorkStatus.APPROVED
+        )
+        viewModel.selectWork(workWithSupApproval)
         assertTrue(viewModel.completeWork())
         assertEquals(com.example.taskmanagementapplication.core.model.WorkStatus.COMPLETED, viewModel.work.value.status)
         assertTrue(viewModel.isCompleted())
@@ -417,7 +432,26 @@ class WorkViewModelTest {
         assertEquals(com.example.taskmanagementapplication.core.model.ApprovalState.APPROVED, viewModel.work.value.pocApprovalState)
         assertEquals(com.example.taskmanagementapplication.core.model.ApprovalState.PENDING, viewModel.work.value.supervisorApprovalState)
 
-        viewModel.approveBySupervisor()
+        val workWithSupApproval = viewModel.work.value.copy(
+            supervisorApproved = true,
+            supervisorApprovalTime = "18 Sep 2026, 11:30 AM",
+            status = com.example.taskmanagementapplication.core.model.WorkStatus.APPROVED
+        )
+        viewModel.selectWork(workWithSupApproval)
         assertEquals(com.example.taskmanagementapplication.core.model.ApprovalState.APPROVED, viewModel.work.value.supervisorApprovalState)
+    }
+
+    @Test
+    fun testSupervisorApprovalUrlUsesNetlify() {
+        val testUrl = "https://taskmanagementwebsite1.netlify.app/approve/secure_mock_token_12345"
+        val workWithNetlifyUrl = viewModel.work.value.copy(
+            supervisorApprovalUrl = testUrl,
+            pocApproved = true,
+            status = com.example.taskmanagementapplication.core.model.WorkStatus.WAITING_FOR_SUPERVISOR_REVIEW
+        )
+        viewModel.selectWork(workWithNetlifyUrl)
+        assertEquals(testUrl, viewModel.work.value.supervisorApprovalUrl)
+        assertTrue(viewModel.work.value.supervisorApprovalUrl!!.startsWith("https://taskmanagementwebsite1.netlify.app/approve/"))
+        assertFalse(viewModel.work.value.supervisorApprovalUrl!!.contains("localhost"))
     }
 }

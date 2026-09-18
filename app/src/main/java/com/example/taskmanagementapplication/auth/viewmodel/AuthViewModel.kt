@@ -73,38 +73,22 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
         _loginState.value = LoginState.Idle
     }
 
+    suspend fun checkAndRestoreSession(): User? {
+        val restoredUser = authRepository.restoreSession()
+        if (restoredUser != null) {
+            _currentUser.value = restoredUser
+            _loginState.value = LoginState.Success(restoredUser)
+        }
+        return restoredUser
+    }
+
     /**
      * Creates a User from persisted token data (for auto-login restore).
      * Used to restore session without re-login.
      */
     fun restoreSessionIfNeeded() {
         viewModelScope.launch {
-            val token = tokenManager.getToken()
-            if (token != null && _currentUser.value == null) {
-                val id = tokenManager.getUserId() ?: return@launch
-                val roleStr = tokenManager.getUserRole() ?: return@launch
-                val role = when (roleStr) {
-                    "POC" -> UserRole.POC
-                    "SITE_SUPERVISOR" -> UserRole.SITE_SUPERVISOR
-                    else -> UserRole.SERVICE_BOY
-                }
-                // Emit a minimal restored user (no network call needed on re-open)
-                tokenManager.userNameFlow.collect { name ->
-                    tokenManager.userEmailFlow.collect { email ->
-                        if (name != null && email != null) {
-                            _currentUser.value = User(
-                                id = id.toString(),
-                                name = name,
-                                email = email,
-                                phone = "",
-                                role = role
-                            )
-                        }
-                        return@collect
-                    }
-                    return@collect
-                }
-            }
+            checkAndRestoreSession()
         }
     }
 }

@@ -42,7 +42,9 @@ data class ActivityEvent(
     val isDone: Boolean = true,
     val latitude: Double? = null,
     val longitude: Double? = null,
-    val accuracyMeters: Double? = null
+    val accuracyMeters: Double? = null,
+    val eventType: String = "",
+    val performedByName: String? = null
 )
 
 enum class PhotoUploadStatus {
@@ -134,8 +136,10 @@ data class Work(
     val supervisorRejectionReason: String? = null,
     val submittedForReviewAt: String? = null,
     val completedAt: String? = null,
+    val createdAt: String? = null,
     val readyForCompletion: Boolean = false,
     val googleMapsLink: String? = null,
+    val supervisorApprovalUrl: String? = null,
     // Backend IDs for API calls
     val backendId: Long? = null,
     val serviceBoyId: Long? = null,

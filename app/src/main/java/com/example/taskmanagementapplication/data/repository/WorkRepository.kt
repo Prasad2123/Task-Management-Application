@@ -46,10 +46,24 @@ class WorkRepository(
     // WORKS & WORKFLOW RPCs
     // ====================================================================
 
+    private fun sanitizeApprovalUrl(url: String?): String? {
+        if (url.isNullOrBlank()) return url
+        return if (url.contains("localhost")) {
+            url.replace("http://localhost:4173", "https://taskmanagementwebsite1.netlify.app")
+                .replace("https://localhost:4173", "https://taskmanagementwebsite1.netlify.app")
+                .replace("http://localhost", "https://taskmanagementwebsite1.netlify.app")
+        } else {
+            url
+        }
+    }
+
     suspend fun getMyWorks(): NetworkResult<List<Work>> = safeCall {
         val response = apiService.getMyWorks()
         NetworkModule.toNetworkResult(response).mapSuccess { dtos ->
-            dtos.map { it.toDomainModel() }
+            dtos.map { it.toDomainModel() }.sortedWith(
+                compareByDescending<Work> { it.createdAt ?: "" }
+                    .thenByDescending { it.backendId ?: (it.id.toLongOrNull() ?: 0L) }
+            )
         }
     }
 
@@ -128,6 +142,17 @@ class WorkRepository(
 
     suspend fun getMasterTasks(): NetworkResult<List<MasterTask>> = safeCall {
         val response = apiService.getMasterTasks()
+        NetworkModule.toNetworkResult(response).mapSuccess { dtos ->
+            dtos.map { it.toDomainModel() }
+        }
+    }
+
+    // ====================================================================
+    // COMPANIES MASTER
+    // ====================================================================
+
+    suspend fun getCompanies(): NetworkResult<List<Company>> = safeCall {
+        val response = apiService.getCompanies()
         NetworkModule.toNetworkResult(response).mapSuccess { dtos ->
             dtos.map { it.toDomainModel() }
         }
@@ -248,27 +273,39 @@ class WorkRepository(
         NetworkModule.toNetworkResult(response)
     }
 
-    suspend fun pocApprove(workId: Long): NetworkResult<ApprovalDto> = safeCall {
+    suspend fun pocApprove(workId: Long): NetworkResult<PocDecisionResponseDto> = safeCall {
+        val token = tokenManager?.getToken()
+        if (tokenManager != null && token.isNullOrBlank()) {
+            return@safeCall NetworkResult.Error(
+                code = 401,
+                message = "Authentication session expired or missing. Please log in again as POC."
+            )
+        }
         val request = PocDecisionRpcRequest(workId = workId, decision = "APPROVED")
         val response = apiService.pocDecision(request)
-        NetworkModule.toNetworkResult(response)
+        val result = NetworkModule.toNetworkResult(response)
+        result.mapSuccess { dto ->
+            dto.copy(supervisorApprovalUrl = sanitizeApprovalUrl(dto.supervisorApprovalUrl))
+        }
     }
 
-    suspend fun pocReject(workId: Long, reason: String): NetworkResult<ApprovalDto> = safeCall {
+    suspend fun getSupervisorWebRequest(workId: Long): NetworkResult<SupervisorWebRequestDto?> = safeCall {
+        val response = apiService.getSupervisorWebRequest("eq.$workId")
+        NetworkModule.toNetworkResult(response).mapSuccess { list ->
+            list.firstOrNull()
+        }
+    }
+
+    suspend fun pocReject(workId: Long, reason: String): NetworkResult<PocDecisionResponseDto> = safeCall {
+        val token = tokenManager?.getToken()
+        if (tokenManager != null && token.isNullOrBlank()) {
+            return@safeCall NetworkResult.Error(
+                code = 401,
+                message = "Authentication session expired or missing. Please log in again as POC."
+            )
+        }
         val request = PocDecisionRpcRequest(workId = workId, decision = "REJECTED", reason = reason)
         val response = apiService.pocDecision(request)
-        NetworkModule.toNetworkResult(response)
-    }
-
-    suspend fun supervisorApprove(workId: Long): NetworkResult<ApprovalDto> = safeCall {
-        val request = SupervisorDecisionRpcRequest(workId = workId, decision = "APPROVED")
-        val response = apiService.supervisorDecision(request)
-        NetworkModule.toNetworkResult(response)
-    }
-
-    suspend fun supervisorReject(workId: Long, reason: String): NetworkResult<ApprovalDto> = safeCall {
-        val request = SupervisorDecisionRpcRequest(workId = workId, decision = "REJECTED", reason = reason)
-        val response = apiService.supervisorDecision(request)
         NetworkModule.toNetworkResult(response)
     }
 
@@ -494,9 +531,23 @@ class WorkRepository(
             else -> if (baseWork.status == WorkStatus.APPROVED || baseWork.status == WorkStatus.COMPLETED) true else null
         }
 
+        // Fetch activity events (ORDER BY event_timestamp ASC)
+        val activityResp = apiService.getActivity("eq.$workId", order = "event_timestamp.asc")
+        val activityLog = if (activityResp.isSuccessful) {
+            activityResp.body()?.map { it.toDomainModel() } ?: emptyList()
+        } else emptyList()
+
+        // Fetch supervisor web approval request to restore existing URL
+        val webReqResp = apiService.getSupervisorWebRequest("eq.$workId")
+        val webReq = if (webReqResp.isSuccessful) {
+            webReqResp.body()?.firstOrNull()
+        } else null
+
         val enrichedWork = baseWork.copy(
             checklist = checklist,
             photos = photos,
+            activityLog = activityLog,
+            supervisorApprovalUrl = sanitizeApprovalUrl(webReq?.approvalUrl),
             pocApproved = isPocApproved,
             pocApprovalTime = pocApproval?.decidedAt ?: baseWork.pocApprovalTime,
             pocRejectionReason = if (pocApproval?.status == "REJECTED") pocApproval.rejectionReason else null,
@@ -531,14 +582,27 @@ class WorkRepository(
             }
         } catch (_: Exception) {}
 
-        // 1. Fetch authoritative Work entity for PDF data
-        val workResult = getWork(workId)
-        var work = if (workResult is NetworkResult.Success) workResult.data else null
+        // 1. Fetch authoritative Work entity for PDF data (including approvals and timeline)
+        val refreshedResult = refreshWork(workId)
+        var work = if (refreshedResult is NetworkResult.Success) refreshedResult.data else {
+            val workResult = getWork(workId)
+            if (workResult is NetworkResult.Success) workResult.data else null
+        }
 
-        // Populate checklist items
-        val clResult = getChecklist(workId)
-        if (clResult is NetworkResult.Success && work != null) {
-            work = work.copy(checklist = clResult.data)
+        // Populate checklist items if needed
+        if (work != null && work.checklist.isEmpty()) {
+            val clResult = getChecklist(workId)
+            if (clResult is NetworkResult.Success) {
+                work = work.copy(checklist = clResult.data)
+            }
+        }
+
+        // Populate activity events if needed
+        if (work != null && work.activityLog.isEmpty()) {
+            val actResult = getActivity(workId)
+            if (actResult is NetworkResult.Success) {
+                work = work.copy(activityLog = actResult.data)
+            }
         }
 
         // Populate photo records from Supabase
@@ -728,8 +792,19 @@ class WorkRepository(
         supervisorId = this.supervisorId ?: this.supervisor?.id,
         submittedForReviewAt = this.submittedAt,
         completedAt = this.completedAt,
+        createdAt = this.createdAt,
         checklist = emptyList(),
-        photos = emptyList()
+        photos = emptyList(),
+        pocApproved = when (this.status) {
+            "POC_APPROVED", "SUPERVISOR_APPROVED", "COMPLETED" -> true
+            "REJECTED" -> false
+            else -> null
+        },
+        supervisorApproved = when (this.status) {
+            "SUPERVISOR_APPROVED", "COMPLETED" -> true
+            "REJECTED" -> false
+            else -> null
+        }
     )
 
     private fun ActivityEventDto.toDomainModel(): ActivityEvent = ActivityEvent(
@@ -739,7 +814,9 @@ class WorkRepository(
         isDone = true,
         latitude = this.latitude,
         longitude = this.longitude,
-        accuracyMeters = this.accuracyMeters
+        accuracyMeters = this.accuracyMeters,
+        eventType = this.eventType,
+        performedByName = this.performedBy?.name
     )
 
     private fun ChecklistItemDto.toDomainModel(): ChecklistItem = ChecklistItem(
@@ -774,6 +851,14 @@ class WorkRepository(
         category = this.category ?: "GENERAL",
         displayOrder = this.displayOrder,
         isActive = this.isActive
+    )
+
+    private fun CompanyDto.toDomainModel(): Company = Company(
+        id = this.id,
+        companyName = this.companyName,
+        address = this.address,
+        latitude = this.latitude,
+        longitude = this.longitude
     )
 
     private fun String.toWorkStatus(): WorkStatus = when (this) {

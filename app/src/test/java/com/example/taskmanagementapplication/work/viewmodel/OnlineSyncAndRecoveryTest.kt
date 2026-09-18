@@ -159,7 +159,7 @@ class OnlineSyncAndRecoveryTest {
     }
 
     @Test
-    fun testAuthoritativeWrite_blockedWhenOffline_approveBySupervisor() {
+    fun testAuthoritativeWrite_blockedWhenOffline_rejectByPoc() {
         val offlineMonitor = createFakeNetworkMonitor(online = false)
         val fakeRepo = WorkRepository(Proxy.newProxyInstance(
             ApiService::class.java.classLoader,
@@ -172,15 +172,8 @@ class OnlineSyncAndRecoveryTest {
             networkMonitorInstance = offlineMonitor
         )
 
-        // Set POC approved locally so supervisor precondition passes
-        val method = viewModel.javaClass.getDeclaredField("_work")
-        method.isAccessible = true
-        @Suppress("UNCHECKED_CAST")
-        val workFlow = method.get(viewModel) as MutableStateFlow<Work>
-        workFlow.value = workFlow.value.copy(pocApproved = true)
-
-        val result = viewModel.approveBySupervisor()
-        assertFalse("Supervisor approval while offline must return false", result)
+        val result = viewModel.rejectByPoc("Incomplete checklist items")
+        assertFalse("POC rejection while offline must return false", result)
         assertEquals(
             "Internet connection required to complete this action",
             viewModel.errorMessage.value

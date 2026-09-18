@@ -257,9 +257,28 @@ object PdfReportGenerator {
             }
             currentY += thH
 
+            val supStage = if (work?.supervisorApproved == true) "SUPERVISOR (WEB)" else "SITE_SUPERVISOR"
+            val supDecision = when (work?.supervisorApproved) {
+                true -> "APPROVED"
+                false -> "REJECTED"
+                null -> if (work?.pocApproved == true) "PENDING (WEB)" else "PENDING"
+            }
+            val pocDecision = when (work?.pocApproved) {
+                true -> "APPROVED"
+                false -> "REJECTED"
+                null -> "PENDING"
+            }
+            val pocTime = when (work?.pocApproved) {
+                true, false -> DateTimeUtils.formatToIndiaTime(work.pocApprovalTime ?: fieldEndTime)
+                null -> "—"
+            }
+            val supTime = when (work?.supervisorApproved) {
+                true, false -> DateTimeUtils.formatToIndiaTime(work.supervisorApprovalTime ?: fieldEndTime)
+                null -> "—"
+            }
             val approvalRows = listOf(
-                listOf("POC", work?.pocName ?: "Amit Sharma", if (work?.pocApproved != false) "APPROVED" else "REJECTED", DateTimeUtils.formatToIndiaTime(work?.pocApprovalTime ?: fieldEndTime)),
-                listOf("SITE_SUPERVISOR", work?.supervisorName ?: "Suresh Patil", if (work?.supervisorApproved != false) "APPROVED" else "REJECTED", DateTimeUtils.formatToIndiaTime(work?.supervisorApprovalTime ?: fieldEndTime))
+                listOf("POC", work?.pocName ?: "Amit Sharma", pocDecision, pocTime),
+                listOf(supStage, work?.supervisorName ?: "Suresh Patil", supDecision, supTime)
             )
 
             val appRowH = 18f
@@ -284,6 +303,20 @@ object PdfReportGenerator {
                     canvas1.drawText(truncateText(text, 24), cX + 6f, currentY + 12.5f, paint)
                 }
                 currentY += appRowH
+            }
+
+            if (work?.supervisorApproved == true) {
+                paint.color = COLOR_TEXT_MUTED
+                paint.textSize = 7.5f
+                paint.isFakeBoldText = true
+                canvas1.drawText("Supervisor Approval Method: WEB • Authorized via Secure Supervisor Web Portal", MARGIN_LEFT, currentY + 10f, paint)
+                currentY += 13f
+            } else if (work?.supervisorApproved == false && !work.supervisorRejectionReason.isNullOrBlank()) {
+                paint.color = Color.RED
+                paint.textSize = 7.5f
+                paint.isFakeBoldText = true
+                canvas1.drawText("Supervisor Rejection Reason: ${work.supervisorRejectionReason}", MARGIN_LEFT, currentY + 10f, paint)
+                currentY += 13f
             }
 
             // 6. Section 4: Predefined Checklist Execution
@@ -357,12 +390,12 @@ object PdfReportGenerator {
                 currentY += clRowH
             }
 
-            // 7. Section 6: Authoritative Activity Audit Timeline (starts on Page 1)
+            // 7. Section 5: Authoritative Activity Audit Timeline (starts on Page 1)
             currentY += 16f
             paint.color = COLOR_PRIMARY
             paint.textSize = 12.5f
             paint.isFakeBoldText = true
-            canvas1.drawText("6. Authoritative Activity Audit Timeline", MARGIN_LEFT, currentY, paint)
+            canvas1.drawText("5. Authoritative Activity Audit Timeline", MARGIN_LEFT, currentY, paint)
             currentY += 8f
 
             // Timeline header
@@ -384,8 +417,8 @@ object PdfReportGenerator {
             canvas1.drawText("Event Description & Actor", MARGIN_LEFT + colW * 2 + 6f, currentY + 13f, paint)
             currentY += thH
 
-            // Page 1 gets the first 1 or 2 timeline items
-            val page1TimelineCount = minOf(1, timeline.size)
+            // Page 1 gets the first 2 timeline items
+            val page1TimelineCount = minOf(2, timeline.size)
             for (i in 0 until page1TimelineCount) {
                 val ev = timeline[i]
                 val evH = 20f
@@ -401,7 +434,7 @@ object PdfReportGenerator {
 
                 paint.color = COLOR_TEXT_DARK
                 paint.isFakeBoldText = true
-                canvas1.drawText(ev.type, MARGIN_LEFT + colW + 6f, currentY + 13f, paint)
+                canvas1.drawText(truncateText(ev.type, 18), MARGIN_LEFT + colW + 6f, currentY + 13f, paint)
 
                 paint.color = COLOR_TEXT_DARK
                 paint.isFakeBoldText = false
@@ -409,6 +442,17 @@ object PdfReportGenerator {
 
                 currentY += evH
             }
+
+            // Page 1 Footer
+            paint.textAlign = Paint.Align.CENTER
+            paint.color = COLOR_TEXT_MUTED
+            paint.textSize = 8.5f
+            paint.isFakeBoldText = false
+            canvas1.drawText("This document is an authoritative, digitally compiled field service completion report.", PAGE_WIDTH / 2f, 795f, paint)
+
+            paint.color = COLOR_TEXT_LIGHT
+            paint.textSize = 7.5f
+            canvas1.drawText("Generated by Field Service Management Engine on $nowFormatted", PAGE_WIDTH / 2f, 809f, paint)
 
             document.finishPage(page1)
 
@@ -420,38 +464,66 @@ object PdfReportGenerator {
             val canvas2 = page2.canvas
 
             var p2Y = 42f
+            paint.textAlign = Paint.Align.LEFT
 
-            // Continue timeline events from index 1 onwards
+            // Continue timeline events from index page1TimelineCount onwards
             val remainingTimeline = timeline.drop(page1TimelineCount)
-            val evRowH = 19f
-            for (ev in remainingTimeline) {
-                strokePaint.color = COLOR_BORDER
-                canvas2.drawRect(MARGIN_LEFT, p2Y, MARGIN_LEFT + colW, p2Y + evRowH, strokePaint)
-                canvas2.drawRect(MARGIN_LEFT + colW, p2Y, MARGIN_LEFT + colW * 2, p2Y + evRowH, strokePaint)
-                canvas2.drawRect(MARGIN_LEFT + colW * 2, p2Y, MARGIN_LEFT + CONTENT_WIDTH, p2Y + evRowH, strokePaint)
-
-                paint.color = COLOR_TEXT_MUTED
-                paint.textSize = 8.5f
-                paint.isFakeBoldText = false
-                canvas2.drawText(DateTimeUtils.formatToIndiaTime(ev.timestamp), MARGIN_LEFT + 6f, p2Y + 13f, paint)
-
-                paint.color = COLOR_TEXT_DARK
+            if (remainingTimeline.isNotEmpty()) {
+                paint.color = COLOR_PRIMARY
+                paint.textSize = 10.5f
                 paint.isFakeBoldText = true
-                canvas2.drawText(ev.type, MARGIN_LEFT + colW + 6f, p2Y + 13f, paint)
+                canvas2.drawText("5. Activity Audit Timeline (Continued)", MARGIN_LEFT, p2Y, paint)
+                p2Y += 7f
 
+                // Timeline header on Page 2
+                fillPaint.color = COLOR_TH_BG
+                canvas2.drawRect(MARGIN_LEFT, p2Y, MARGIN_LEFT + colW, p2Y + thH, fillPaint)
+                strokePaint.color = COLOR_HEADER_BORDER
+                canvas2.drawRect(MARGIN_LEFT, p2Y, MARGIN_LEFT + colW, p2Y + thH, strokePaint)
                 paint.color = COLOR_TEXT_DARK
-                paint.isFakeBoldText = false
-                canvas2.drawText(truncateText(ev.description, 50), MARGIN_LEFT + colW * 2 + 6f, p2Y + 13f, paint)
+                paint.textSize = 8.5f
+                paint.isFakeBoldText = true
+                canvas2.drawText("Timestamp", MARGIN_LEFT + 6f, p2Y + 13f, paint)
 
-                p2Y += evRowH
+                canvas2.drawRect(MARGIN_LEFT + colW, p2Y, MARGIN_LEFT + colW * 2, p2Y + thH, fillPaint)
+                canvas2.drawRect(MARGIN_LEFT + colW, p2Y, MARGIN_LEFT + colW * 2, p2Y + thH, strokePaint)
+                canvas2.drawText("Event Type", MARGIN_LEFT + colW + 6f, p2Y + 13f, paint)
+
+                canvas2.drawRect(MARGIN_LEFT + colW * 2, p2Y, MARGIN_LEFT + CONTENT_WIDTH, p2Y + thH, fillPaint)
+                canvas2.drawRect(MARGIN_LEFT + colW * 2, p2Y, MARGIN_LEFT + CONTENT_WIDTH, p2Y + thH, strokePaint)
+                canvas2.drawText("Event Description & Actor", MARGIN_LEFT + colW * 2 + 6f, p2Y + 13f, paint)
+                p2Y += thH
+
+                val evRowH = 18f
+                for (ev in remainingTimeline) {
+                    strokePaint.color = COLOR_BORDER
+                    canvas2.drawRect(MARGIN_LEFT, p2Y, MARGIN_LEFT + colW, p2Y + evRowH, strokePaint)
+                    canvas2.drawRect(MARGIN_LEFT + colW, p2Y, MARGIN_LEFT + colW * 2, p2Y + evRowH, strokePaint)
+                    canvas2.drawRect(MARGIN_LEFT + colW * 2, p2Y, MARGIN_LEFT + CONTENT_WIDTH, p2Y + evRowH, strokePaint)
+
+                    paint.color = COLOR_TEXT_MUTED
+                    paint.textSize = 8.5f
+                    paint.isFakeBoldText = false
+                    canvas2.drawText(DateTimeUtils.formatToIndiaTime(ev.timestamp), MARGIN_LEFT + 6f, p2Y + 12.5f, paint)
+
+                    paint.color = COLOR_TEXT_DARK
+                    paint.isFakeBoldText = true
+                    canvas2.drawText(truncateText(ev.type, 18), MARGIN_LEFT + colW + 6f, p2Y + 12.5f, paint)
+
+                    paint.color = COLOR_TEXT_DARK
+                    paint.isFakeBoldText = false
+                    canvas2.drawText(truncateText(ev.description, 48), MARGIN_LEFT + colW * 2 + 6f, p2Y + 12.5f, paint)
+
+                    p2Y += evRowH
+                }
+                p2Y += 14f
             }
 
-            // Section 7: Photographic Work Evidence
-            p2Y += 24f
+            // Section 6: Photographic Work Evidence
             paint.color = COLOR_PRIMARY
             paint.textSize = 12.5f
             paint.isFakeBoldText = true
-            canvas2.drawText("7. Photographic Work Evidence", MARGIN_LEFT, p2Y, paint)
+            canvas2.drawText("6. Photographic Work Evidence", MARGIN_LEFT, p2Y, paint)
 
             p2Y += 14f
             paint.color = COLOR_TEXT_LIGHT
@@ -557,7 +629,7 @@ object PdfReportGenerator {
                     paint.color = COLOR_PRIMARY
                     paint.textSize = 12.5f
                     paint.isFakeBoldText = true
-                    canvas.drawText("7. Photographic Work Evidence (Continued - Page $pageNum)", MARGIN_LEFT, pY, paint)
+                    canvas.drawText("6. Photographic Work Evidence (Continued - Page $pageNum)", MARGIN_LEFT, pY, paint)
                     pY += 25f
 
                     val chunk = pages[pIdx]
@@ -621,38 +693,75 @@ object PdfReportGenerator {
 
     private fun buildAuditTimeline(work: Work?): List<TimelineEntry> {
         val list = mutableListOf<TimelineEntry>()
-        val boyName = work?.serviceBoyName?.ifBlank { "Rahul Patil" } ?: "Rahul Patil"
-        val pocName = work?.pocName?.ifBlank { "Amit Sharma" } ?: "Amit Sharma"
-        val supName = work?.supervisorName?.ifBlank { "Suresh Patil" } ?: "Suresh Patil"
-        val scheduledDate = work?.scheduledDate?.ifBlank { "2026-09-13" } ?: "2026-09-13"
-        val startTime = work?.startTime ?: "$scheduledDate 08:57:04"
-        val completedTime = work?.submittedForReviewAt ?: work?.completedAt ?: work?.endTime ?: "$scheduledDate 09:00:00"
 
-        list.add(TimelineEntry("$scheduledDate 08:17:31", "WORK_CREATED", "Work assigned to $boyName"))
-        list.add(TimelineEntry(startTime, "WORK_STARTED", "Work started at verified location (${work?.latitude ?: 17.5230}, ${work?.longitude ?: 73.5378}, distance: 2m) by $boyName"))
+        if (!work?.activityLog.isNullOrEmpty()) {
+            for (ev in work.activityLog) {
+                val type = ev.eventType.ifBlank { deriveEventType(ev.description) }
+                val descWithActor = if (!ev.performedByName.isNullOrBlank() && !ev.description.contains(ev.performedByName, ignoreCase = true)) {
+                    "${ev.description} • Actor: ${ev.performedByName}"
+                } else {
+                    ev.description
+                }
+                list.add(TimelineEntry(ev.timestamp, type, descWithActor))
+            }
+            return list
+        }
+
+        // Fallback if activityLog is not yet synced from server
+        val boyName = work?.serviceBoyName?.ifBlank { "Service Technician" } ?: "Service Technician"
+        val pocName = work?.pocName?.ifBlank { "Client POC" } ?: "Client POC"
+        val supName = work?.supervisorName?.ifBlank { "Site Supervisor" } ?: "Site Supervisor"
+        val scheduledDate = work?.scheduledDate?.ifBlank { "2026-09-18" } ?: "2026-09-18"
+        val startTime = work?.startTime ?: "$scheduledDate 09:00:00"
+        val completedTime = work?.submittedForReviewAt ?: work?.completedAt ?: work?.endTime ?: "$scheduledDate 10:00:00"
+
+        list.add(TimelineEntry(scheduledDate, "WORK_ASSIGNED", "Work assigned to $boyName • Actor: System"))
+        list.add(TimelineEntry(startTime, "WORK_STARTED", "Work started at verified location by $boyName • Actor: $boyName"))
 
         if (!work?.photos.isNullOrEmpty()) {
             for (p in work.photos) {
-                list.add(TimelineEntry(p.uploadedAt, "PHOTO_ADDED", "Photo added: ${p.title} (${p.category.displayName})"))
+                list.add(TimelineEntry(p.uploadedAt, "PHOTO_UPLOADED", "Photo uploaded: ${p.title} (${p.category.displayName}) • Actor: $boyName"))
             }
-        } else {
-            list.add(TimelineEntry(startTime, "PHOTO_ADDED", "Photo added: Site Inspection #788 (Site Inspection)"))
         }
 
-        list.add(TimelineEntry(work?.submittedForReviewAt ?: startTime, "WORK_SUBMITTED", "Work submitted for review by $boyName"))
-        if (work?.pocApproved != null) {
-            val statusStr = if (work.pocApproved == true) "approved" else "rejected"
-            list.add(TimelineEntry(work.pocApprovalTime ?: completedTime, "POC_APPROVED", "Work $statusStr by POC: $pocName"))
+        if (work?.submittedForReviewAt != null) {
+            list.add(TimelineEntry(work.submittedForReviewAt, "WORK_SUBMITTED_FOR_REVIEW", "Work submitted for review by $boyName • Actor: $boyName"))
         }
-        if (work?.supervisorApproved != null) {
-            val statusStr = if (work.supervisorApproved == true) "approved" else "rejected"
-            list.add(TimelineEntry(work.supervisorApprovalTime ?: completedTime, "SUPERVISOR_APPROVED", "Work $statusStr by Supervisor: $supName"))
+
+        if (work?.pocApproved == true) {
+            list.add(TimelineEntry(work.pocApprovalTime ?: completedTime, "POC_APPROVED", "Work approved by POC: $pocName • Actor: $pocName"))
+            list.add(TimelineEntry(work.pocApprovalTime ?: completedTime, "SUPERVISOR_WEB_APPROVAL_REQUEST_CREATED", "Supervisor Web Approval Request generated for $supName (Method: WEB) • Actor: System"))
+        } else if (work?.pocApproved == false) {
+            list.add(TimelineEntry(work.pocApprovalTime ?: completedTime, "POC_REJECTED", "Work rejected by POC: $pocName Reason: ${work.pocRejectionReason ?: "Changes requested"} • Actor: $pocName"))
         }
-        if (work?.status == WorkStatus.COMPLETED || work?.completedAt != null) {
-            list.add(TimelineEntry(completedTime, "WORK_COMPLETED", "Work completed by $boyName"))
+
+        if (work?.supervisorApproved == true) {
+            list.add(TimelineEntry(work.supervisorApprovalTime ?: completedTime, "SUPERVISOR_APPROVED", "Work approved by Supervisor: $supName via Web Portal (Method: WEB) • Actor: $supName"))
+            list.add(TimelineEntry(work.completedAt ?: work.supervisorApprovalTime ?: completedTime, "WORK_COMPLETED", "Work marked COMPLETED • Actor: System"))
+        } else if (work?.supervisorApproved == false) {
+            list.add(TimelineEntry(work.supervisorApprovalTime ?: completedTime, "SUPERVISOR_REJECTED", "Work rejected by Supervisor: $supName Reason: ${work.supervisorRejectionReason ?: "Changes requested"} • Actor: $supName"))
         }
 
         return list
+    }
+
+    private fun deriveEventType(description: String): String {
+        val lower = description.lowercase()
+        return when {
+            "assigned" in lower -> "WORK_ASSIGNED"
+            "started" in lower -> "WORK_STARTED"
+            "checklist" in lower || "item completed" in lower -> "CHECKLIST_COMPLETED"
+            "photo" in lower -> "PHOTO_UPLOADED"
+            "submitted" in lower -> "WORK_SUBMITTED_FOR_REVIEW"
+            "poc approved" in lower -> "POC_APPROVED"
+            "poc rejected" in lower -> "POC_REJECTED"
+            "web approval request" in lower || "web approval link" in lower -> "SUPERVISOR_WEB_APPROVAL_REQUEST_CREATED"
+            "accessed" in lower -> "SUPERVISOR_WEB_APPROVAL_LINK_ACCESSED"
+            "supervisor approved" in lower -> "SUPERVISOR_APPROVED"
+            "supervisor rejected" in lower -> "SUPERVISOR_REJECTED"
+            "completed" in lower -> "WORK_COMPLETED"
+            else -> "ACTIVITY_EVENT"
+        }
     }
 
     private fun truncateText(text: String, maxLen: Int): String {

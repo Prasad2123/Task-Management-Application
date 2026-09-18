@@ -127,14 +127,20 @@ data class WorkIdRpcRequest(
 data class PocDecisionRpcRequest(
     @Json(name = "p_work_id") val workId: Long,
     @Json(name = "p_decision") val decision: String,
-    @Json(name = "p_reason") val reason: String? = null
+    @Json(name = "p_reason") val reason: String? = null,
+    @Json(name = "p_portal_base_url") val portalBaseUrl: String = "https://taskmanagementwebsite1.netlify.app"
 )
 
 @JsonClass(generateAdapter = true)
-data class SupervisorDecisionRpcRequest(
-    @Json(name = "p_work_id") val workId: Long,
-    @Json(name = "p_decision") val decision: String,
-    @Json(name = "p_reason") val reason: String? = null
+data class SupervisorWebApprovalRequestDto(
+    val id: Long? = null,
+    @Json(name = "work_id") val workId: Long,
+    @Json(name = "supervisor_id") val supervisorId: Long,
+    val status: String = "PENDING",
+    @Json(name = "approval_url") val approvalUrl: String? = null,
+    @Json(name = "created_at") val createdAt: String? = null,
+    @Json(name = "expires_at") val expiresAt: String? = null,
+    @Json(name = "delivery_status") val deliveryStatus: String? = null
 )
 
 // Legacy request dto for start work
@@ -156,6 +162,19 @@ data class MasterTaskDto(
     @Json(name = "category") val category: String? = "GENERAL",
     @Json(name = "display_order") val displayOrder: Int = 0,
     @Json(name = "is_active") val isActive: Boolean = true
+)
+
+// ====================================================================
+// COMPANY DTOs
+// ====================================================================
+
+@JsonClass(generateAdapter = true)
+data class CompanyDto(
+    @Json(name = "id") val id: Long,
+    @Json(name = "company_name") val companyName: String,
+    @Json(name = "address") val address: String,
+    @Json(name = "latitude") val latitude: Double,
+    @Json(name = "longitude") val longitude: Double
 )
 
 @JsonClass(generateAdapter = true)
@@ -262,6 +281,45 @@ data class ApprovalDto(
     @Json(name = "status") val status: String,
     @Json(name = "decided_at") val decidedAt: String? = null,
     @Json(name = "rejection_reason") val rejectionReason: String? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class PocDecisionResponseDto(
+    @Json(name = "approval")
+    val approval: ApprovalDto? = null,
+
+    @Json(name = "success")
+    val success: Boolean? = null,
+
+    @Json(name = "poc_approved")
+    val pocApproved: Boolean? = null,
+
+    @Json(name = "supervisor_approval_url")
+    val supervisorApprovalUrl: String? = null,
+
+    @Json(name = "web_request_created")
+    val webRequestCreated: Boolean? = null,
+
+    @Json(name = "web_request_status")
+    val webRequestStatus: String? = null,
+
+    @Json(name = "expires_at")
+    val expiresAt: String? = null
+) {
+    val status: String get() = approval?.status ?: "APPROVED"
+    val approverRole: String get() = approval?.approverRole ?: "POC"
+    val decidedAt: String? get() = approval?.decidedAt
+}
+
+@JsonClass(generateAdapter = true)
+data class SupervisorWebRequestDto(
+    @Json(name = "id") val id: Long? = null,
+    @Json(name = "work_id") val workId: Long,
+    @Json(name = "supervisor_id") val supervisorId: Long? = null,
+    @Json(name = "status") val status: String,
+    @Json(name = "approval_url") val approvalUrl: String? = null,
+    @Json(name = "expires_at") val expiresAt: String? = null,
+    @Json(name = "created_at") val createdAt: String? = null
 )
 
 @JsonClass(generateAdapter = true)

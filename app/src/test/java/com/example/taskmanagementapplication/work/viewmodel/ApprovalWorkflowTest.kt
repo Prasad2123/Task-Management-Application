@@ -44,35 +44,21 @@ class ApprovalWorkflowTest {
     }
 
     @Test
-    fun testSupervisorRejectRequiresNonEmptyReason() {
+    fun testPocApprovalInitiatesSupervisorWebRequest() {
         viewModel.submitWorkForReview()
-        viewModel.approveByPoc()
+        assertEquals(WorkStatus.WAITING_FOR_POC_REVIEW, viewModel.work.value.status)
+
+        val pocResult = viewModel.approveByPoc()
+        assertTrue(pocResult)
         assertEquals(WorkStatus.WAITING_FOR_SUPERVISOR_REVIEW, viewModel.work.value.status)
+        assertEquals(true, viewModel.work.value.pocApproved)
+        assertEquals(ApprovalState.APPROVED, viewModel.work.value.pocApprovalState)
 
-        // Try blank reason
-        val emptyReject = viewModel.rejectBySupervisor("")
-        assertFalse("Supervisor rejection with blank reason must be rejected", emptyReject)
-        assertEquals("Rejection reason is mandatory.", viewModel.errorMessage.value)
-
-        // Try valid reason
-        val validReject = viewModel.rejectBySupervisor("Missing site clearing photo")
-        assertTrue(validReject)
-        assertEquals(WorkStatus.REJECTED, viewModel.work.value.status)
-        assertEquals("Missing site clearing photo", viewModel.work.value.supervisorRejectionReason)
-    }
-
-    @Test
-    fun testSupervisorCannotApproveBeforePoc() {
-        viewModel.submitWorkForReview()
-        assertNull(viewModel.work.value.pocApproved)
-
-        val result = viewModel.approveBySupervisor()
-        assertFalse("Supervisor must not be able to approve before POC", result)
-        assertEquals(
-            "Supervisor approval is unavailable until POC approval is completed.",
-            viewModel.errorMessage.value
-        )
-        assertNull(viewModel.work.value.supervisorApproved)
+        // Verifies web approval request is recorded in audit timeline and notifications
+        val notifications = viewModel.notifications.value
+        assertTrue(notifications.any { it.title.contains("Supervisor Web Approval Request", ignoreCase = true) })
+        val activities = viewModel.work.value.activityLog
+        assertTrue(activities.any { it.description.contains("Supervisor Web Approval Request initiated", ignoreCase = true) })
     }
 
     @Test
@@ -85,11 +71,17 @@ class ApprovalWorkflowTest {
         assertTrue(pocResult)
         assertEquals(WorkStatus.WAITING_FOR_SUPERVISOR_REVIEW, viewModel.work.value.status)
         assertEquals(true, viewModel.work.value.pocApproved)
-        assertEquals(ApprovalState.APPROVED, viewModel.work.value.pocApprovalState)
 
-        // Supervisor Approves
-        val supResult = viewModel.approveBySupervisor()
-        assertTrue(supResult)
+        // Simulate authoritative Supervisor approval from Web Portal
+        viewModel.selectWork(
+            viewModel.work.value.copy(
+                status = WorkStatus.APPROVED,
+                supervisorApproved = true,
+                supervisorApprovalTime = "11:00 AM",
+                readyForCompletion = true
+            )
+        )
+
         assertEquals(WorkStatus.APPROVED, viewModel.work.value.status)
         assertEquals(true, viewModel.work.value.supervisorApproved)
         assertEquals(ApprovalState.APPROVED, viewModel.work.value.supervisorApprovalState)
@@ -127,15 +119,18 @@ class ApprovalWorkflowTest {
         ) { _, _, _ -> null } as ApiService) {
             override suspend fun pocDecision(
                 request: PocDecisionRpcRequest
-            ): Response<ApprovalDto> {
+            ): Response<PocDecisionResponseDto> {
                 return Response.success(
-                    ApprovalDto(
-                        id = 1L,
-                        workId = request.workId,
-                        approverRole = "POC",
-                        status = request.decision,
-                        rejectionReason = request.reason,
-                        decidedAt = "2026-09-13T06:30:00Z"
+                    PocDecisionResponseDto(
+                        approval = ApprovalDto(
+                            id = 1L,
+                            workId = request.workId,
+                            approverRole = "POC",
+                            status = request.decision,
+                            rejectionReason = request.reason,
+                            decidedAt = "2026-09-13T06:30:00Z"
+                        ),
+                        webRequestCreated = (request.decision == "APPROVED")
                     )
                 )
             }
@@ -150,35 +145,6 @@ class ApprovalWorkflowTest {
         assertEquals("2026-09-13T06:30:00Z", approval.decidedAt)
     }
 
-    @Test
-    fun testWorkRepository_supervisorDecision_reject_success() = runTest {
-        val fakeApiService = object : ApiService by (java.lang.reflect.Proxy.newProxyInstance(
-            ApiService::class.java.classLoader,
-            arrayOf(ApiService::class.java)
-        ) { _, _, _ -> null } as ApiService) {
-            override suspend fun supervisorDecision(
-                request: SupervisorDecisionRpcRequest
-            ): Response<ApprovalDto> {
-                return Response.success(
-                    ApprovalDto(
-                        id = 2L,
-                        workId = request.workId,
-                        approverRole = "SUPERVISOR",
-                        status = request.decision,
-                        rejectionReason = request.reason,
-                        decidedAt = "2026-09-13T06:45:00Z"
-                    )
-                )
-            }
-        }
-
-        val repo = WorkRepository(fakeApiService)
-        val result = repo.supervisorReject(10L, "Fix valve leak")
-        assertTrue(result is NetworkResult.Success)
-        val approval = (result as NetworkResult.Success).data
-        assertEquals("REJECTED", approval.status)
-        assertEquals("Fix valve leak", approval.rejectionReason)
-    }
 
     @Test
     fun testWorkRepository_getNotifications_mapping() = runTest {

@@ -22,10 +22,6 @@ object Routes {
     const val POC_HOME = "poc_home"
     const val POC_REVIEW = "poc_review"
 
-    // Supervisor
-    const val SUPERVISOR_HOME = "supervisor_home"
-    const val SUPERVISOR_REVIEW = "supervisor_review"
-
     // Common
     const val PROFILE = "profile"
     const val WORK_REPORT = "work_report"
